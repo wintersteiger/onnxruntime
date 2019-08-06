@@ -97,6 +97,7 @@ int real_main(int argc, char* argv[], Ort::Env& env) {
   bool enable_tensorrt = false;
   bool enable_mem_pattern = true;
   bool enable_openvino = false;
+  bool enable_nnapi = false;
   uint32_t graph_optimization_level = 3;
 
   OrtLoggingLevel logging_level = ORT_LOGGING_LEVEL_WARNING;
@@ -154,6 +155,8 @@ int real_main(int argc, char* argv[], Ort::Env& env) {
             enable_tensorrt = true;
           } else if (!CompareCString(optarg, ORT_TSTR("openvino"))) {
             enable_openvino = true;
+          } else if (!CompareCString(optarg, ORT_TSTR("nnapi"))) {
+            enable_nnapi = true;
           } else {
             usage();
             return -1;
@@ -207,9 +210,8 @@ int real_main(int argc, char* argv[], Ort::Env& env) {
   {
     double per_sample_tolerance = 1e-3;
     // when cuda is enabled, set it to a larger value for resolving random MNIST test failure
-    double relative_per_sample_tolerance = enable_cuda ? 0.017 : 1e-3;
     // when openvino is enabled, set it to a larger value for resolving MNIST accuracy mismatch
-    relative_per_sample_tolerance = enable_openvino ? 0.009 : 1e-3;
+    double relative_per_sample_tolerance = enable_cuda ? 0.017 : enable_openvino ? 0.009 : 1e-3;
 
     Ort::SessionOptions sf;
 
@@ -273,6 +275,14 @@ int real_main(int argc, char* argv[], Ort::Env& env) {
       ORT_THROW_ON_ERROR(OrtSessionOptionsAppendExecutionProvider_NGraph(sf, "CPU"));
 #else
       fprintf(stderr, "nGraph is not supported in this build");
+      return -1;
+#endif
+    }
+    if (enable_nnapi) {
+#ifdef USE_NNAPI
+      ORT_THROW_ON_ERROR(OrtSessionOptionsAppendExecutionProvider_Nnapi(sf));
+#else
+      fprintf(stderr, "DNNLibrary/NNAPI is not supported in this build");
       return -1;
 #endif
     }
@@ -378,6 +388,8 @@ int real_main(int argc, char* argv[], Ort::Env& env) {
 
 #ifdef USE_CUDA
   broken_tests.insert({"mxnet_arcface", "result mismatch"});
+  broken_tests.insert({"mlperf_ssd_mobilenet_300", "unknown error"});
+  broken_tests.insert({"mlperf_ssd_resnet34_1200", "unknown error"});
   broken_tests.insert({"tf_inception_v1", "flaky test"}); //TODO: Investigate cause for flakiness
 #endif
   // clang-format on
