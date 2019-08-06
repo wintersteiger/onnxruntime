@@ -61,13 +61,18 @@ struct PerformanceResult {
       std::sort(sorted_time.begin(), sorted_time.end());
 
       outfile << std::endl;
-      outfile << "Min Latency is " << sorted_time[0] << "sec" << std::endl;
-      outfile << "Max Latency is " << sorted_time[total - 1] << "sec" << std::endl;
-      outfile << "P50 Latency is " << sorted_time[n50] << "sec" << std::endl;
-      outfile << "P90 Latency is " << sorted_time[n90] << "sec" << std::endl;
-      outfile << "P95 Latency is " << sorted_time[n95] << "sec" << std::endl;
-      outfile << "P99 Latency is " << sorted_time[n99] << "sec" << std::endl;
-      outfile << "P999 Latency is " << sorted_time[n999] << "sec" << std::endl;
+      auto output_stats = [&](std::ostream& ostream) {
+        ostream << "Min Latency is " << sorted_time[0] << "sec" << std::endl;
+        ostream << "Max Latency is " << sorted_time[total - 1] << "sec" << std::endl;
+        ostream << "P50 Latency is " << sorted_time[n50] << "sec" << std::endl;
+        ostream << "P90 Latency is " << sorted_time[n90] << "sec" << std::endl;
+        ostream << "P95 Latency is " << sorted_time[n95] << "sec" << std::endl;
+        ostream << "P99 Latency is " << sorted_time[n99] << "sec" << std::endl;
+        ostream << "P999 Latency is " << sorted_time[n999] << "sec" << std::endl;
+      };
+
+      output_stats(outfile);
+      output_stats(std::cout);
     }
 
     outfile.close();
