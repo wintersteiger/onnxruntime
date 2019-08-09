@@ -39,24 +39,6 @@ TEST(ScatterNDOpTest, ScatterND_matrice_int64_int64) {
   test.Run();
 }
 
-// TEST(ScatterNDOpTest, ScatterND_matrice_string_int64) {
-//   OpTester test("ScatterND", 1, onnxruntime::kMSDomain);
-//   test.AddInput<std::string>("data", {2,2}, {"b","b","c","c"});
-//   test.AddInput<int64_t>("indices", {2,2}, {0LL,0LL,1LL,1LL});
-//   test.AddInput<std::string>("updates", {2}, {"a","d"});
-//   test.AddOutput<std::string>("output", {2,2}, {"a","b","c","d"});
-//   test.Run();
-// }
-
-// TEST(ScatterNDOpTest, ScatterND_matrice_int64_int64) {
-//   OpTester test("ScatterND", 1, onnxruntime::kMSDomain);
-//   test.AddInput<int64_t>("data", {2,2}, {1LL,1LL,2LL,2LL});
-//   test.AddInput<int64_t>("indices", {2,2}, {0,0,1,1});
-//   test.AddInput<int64_t>("updates", {2}, {0LL,3LL});
-//   test.AddOutput<int64_t>("output", {2,2}, {0LL,1LL,2LL,3LL});
-//   test.Run();
-// }
-
 TEST(ScatterNDOpTest, ScatterND_matrice_string_int64) {
   OpTester test1("ScatterND", 1, onnxruntime::kMSDomain);
   test1.AddInput<std::string>("data", {2,2,2}, {"egg","dance","bob","air","smart","terry","laugh","kite"});
