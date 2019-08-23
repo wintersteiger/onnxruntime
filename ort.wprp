@@ -1,0 +1,73 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!-- TODO: 
+1. Find and replace "OrtTraceLoggingProvider" with your component name.
+2. See TODO below to update GUID for your event provider
+-->
+<WindowsPerformanceRecorder Version="1.0" Author="Microsoft Corporation"
+    Copyright="Microsoft Corporation" Company="Microsoft Corporation">
+  <Profiles>
+    <EventCollector Id="EventCollector_OrtTraceLoggingProvider"
+      Name="OrtTraceLoggingProviderCollector">
+      <BufferSize Value="64" />
+      <Buffers Value="4" />
+    </EventCollector>
+
+    <!-- TODO: 
+ 1. Update Name attribute in EventProvider xml element with your provider GUID, 
+    or if you specify an EventSource C# provider or call TraceLoggingRegister(...) 
+    without a GUID, use star(*) before your provider name, 
+    eg: Name="*MyEventSourceProvider" which will enable your provider appropriately.
+ 2. This sample lists more than 1 EventProvider xml element and references them again 
+    in a Profile with EventProviderId xml element. For your component wprp, enable 
+    the required number of providers and fix the Profile xml element appropriately
+-->
+    <EventProvider Id="EventProvider_OrtTraceLoggingProvider"
+      Name="54D81939-62A0-4DC0-BF32-035EBDC7BCE9" />
+    <!-- For Kernel Mode providers, add NonPagedMemory="true" attribute to the 
+  EventProvider Id element:
+
+  Example:
+  <EventProvider Id="EventProvider_UMDFReflector" 
+    Name="263dd596-513b-4fd9-969c-022b691bb130" NonPagedMemory="true"/> 
+
+-->
+
+    <Profile Id="OrtTraceLoggingProvider.Verbose.File"
+      Name="OrtTraceLoggingProvider" Description="OrtTraceLoggingProvider"
+      LoggingMode="File" DetailLevel="Verbose">
+      <Collectors>
+        <EventCollectorId Value="EventCollector_OrtTraceLoggingProvider">
+          <EventProviders>
+            <!-- TODO:
+ 1. Fix your EventProviderId with Value same as the Id attribute on EventProvider 
+    xml element above
+-->
+            <EventProviderId Value="EventProvider_OrtTraceLoggingProvider" />
+          </EventProviders>
+        </EventCollectorId>
+      </Collectors>
+    </Profile>
+
+    <Profile Id="OrtTraceLoggingProvider.Light.File"
+      Name="OrtTraceLoggingProvider"
+      Description="OrtTraceLoggingProvider"
+      Base="OrtTraceLoggingProvider.Verbose.File"
+      LoggingMode="File"
+      DetailLevel="Light" />
+
+    <Profile Id="OrtTraceLoggingProvider.Verbose.Memory"
+      Name="OrtTraceLoggingProvider"
+      Description="OrtTraceLoggingProvider"
+      Base="OrtTraceLoggingProvider.Verbose.File"
+      LoggingMode="Memory"
+      DetailLevel="Verbose" />
+
+    <Profile Id="OrtTraceLoggingProvider.Light.Memory"
+      Name="OrtTraceLoggingProvider"
+      Description="OrtTraceLoggingProvider"
+      Base="OrtTraceLoggingProvider.Verbose.File"
+      LoggingMode="Memory"
+      DetailLevel="Light" />
+
+  </Profiles>
+</WindowsPerformanceRecorder>
