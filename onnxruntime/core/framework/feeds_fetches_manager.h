@@ -45,13 +45,14 @@ struct FeedsFetchesInfo {
   std::vector<int> fetches_mlvalue_idxs;
 };
 
+struct MLValueCopyInfo {
+  OrtDevice source_device;
+  OrtDevice target_device;
+  const IExecutionProvider* allocation_provider = nullptr;
+};
+
 class FeedsFetchesManager {
  public:
-  struct MLValueCopyInfo {
-    OrtDevice target_device;
-    const IExecutionProvider* allocation_provider = nullptr;
-  };
-
   static Status Create(const std::vector<std::string>& feed_names, const std::vector<std::string>& output_names,
                        const OrtValueNameIdxMap& ort_value_name_idx_map,
                        std::unique_ptr<FeedsFetchesManager>& feeds_fetches_manager);

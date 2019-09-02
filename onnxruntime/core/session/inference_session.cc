@@ -388,6 +388,11 @@ common::Status InferenceSession::TransformGraph(onnxruntime::Graph& graph,
 /// This will be initialized by InitializeSubgraphSessions.
 common::Status InferenceSession::CreateSubgraphSessionState(Graph& graph, SessionState& session_state) {
   for (auto& node : graph.Nodes()) {
+    // we only need subgraph session state for control flow nodes being handled by the CPU execution provider
+    if (node.GetExecutionProviderType() != kCpuExecutionProvider) {
+      continue;
+    }
+
     for (auto& entry : node.GetAttributeNameToMutableSubgraphMap()) {
       auto& name = entry.first;
       Graph* subgraph = entry.second;
@@ -404,6 +409,9 @@ common::Status InferenceSession::CreateSubgraphSessionState(Graph& graph, Sessio
 
       // recurse
       ORT_RETURN_IF_ERROR(CreateSubgraphSessionState(*subgraph, *subgraph_session_state));
+
+      // add FeedsFetchesManager for subgraph execution and determine which if any feeds and fetches need copies
+      TODO;
 
       // add the subgraph SessionState instance to the parent graph SessionState so it can be retrieved
       // by Compute() via OpKernelContextInternal.
@@ -434,7 +442,6 @@ common::Status InferenceSession::InitializeSubgraphSessions(Graph& graph, Sessio
       const auto implicit_inputs = node.ImplicitInputDefs();
       ORT_RETURN_IF_ERROR(initializer.CreatePlan(&node, &implicit_inputs,
                                                  session_options_.enable_sequential_execution));
-
 
       // LOGS(*session_logger_, VERBOSE) << std::make_pair(subgraph_info.session_state->GetExecutionPlan(),
       //                                                   &*subgraph_info.session_state);

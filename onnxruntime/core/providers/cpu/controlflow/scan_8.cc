@@ -163,7 +163,7 @@ Status Scan<8>::Compute(OpKernelContext* ctx) const {
   ORT_RETURN_IF_ERROR(status);
 
   // create FeedsFetchesManager if needed and call ScanImpl::Execute
-  status = controlflow::detail::SubgraphExecuteHelper(cached_feeds_fetches_manager_, scan_impl);
+  status = controlflow::detail::SubgraphExecuteHelper(cached_feeds_fetches_manager_, scan_impl, manager_init_flag_);
 
   return status;
 }

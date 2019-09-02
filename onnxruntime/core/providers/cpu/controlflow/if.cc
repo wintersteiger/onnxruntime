@@ -105,10 +105,13 @@ Status If::Compute(OpKernelContext* ctx) const {
   ORT_RETURN_IF_ERROR(status);
 
   // create FeedsFetchesManager if needed and call IfImpl::Execute
-  status = controlflow::detail::SubgraphExecuteHelper(condition
-                                                          ? cached_then_feeds_fetches_manager_
-                                                          : cached_else_feeds_fetches_manager_,
-                                                      impl);
+  if (condition) {
+    status = controlflow::detail::SubgraphExecuteHelper(cached_then_feeds_fetches_manager_, impl,
+                                                        then_manager_init_flag_);
+  } else {
+    status = controlflow::detail::SubgraphExecuteHelper(cached_else_feeds_fetches_manager_, impl,
+                                                        else_manager_init_flag_);
+  }
 
   return status;
 }

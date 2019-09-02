@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -16,7 +17,8 @@ namespace detail {
 // helper to execute the subgraph by calling the Execute method of the provided implementation class with
 // with the cached or newly created FeedsFetchesManager
 template <typename TImpl>
-common::Status SubgraphExecuteHelper(std::unique_ptr<FeedsFetchesManager>& cached_feeds_fetches_manager, TImpl& impl) {
+common::Status SubgraphExecuteHelper(std::unique_ptr<FeedsFetchesManager>& cached_feeds_fetches_manager, TImpl& impl,
+                                     std::once_flag& init_flag) {
   auto status = Status::OK();
 
   if (cached_feeds_fetches_manager) {
@@ -24,13 +26,16 @@ common::Status SubgraphExecuteHelper(std::unique_ptr<FeedsFetchesManager>& cache
     const FeedsFetchesManager* cached_ffm = &*cached_feeds_fetches_manager;
     status = impl.Execute(nullptr, cached_ffm);
   } else {
-    // use a local instance until we know we're successful, and cache if it is
+    // use a local instance until we know we're successful, and cache if it is.
+    // doesn't matter if we do this multiple times. only matters that we only set cached_feeds_fetches_manager once.
     std::unique_ptr<FeedsFetchesManager> new_ffm;
     ORT_RETURN_IF_ERROR(impl.CreateFeedsFetchesManager(new_ffm));
 
     status = impl.Execute(&*new_ffm, nullptr);
     if (status.IsOK()) {
-      cached_feeds_fetches_manager = std::move(new_ffm);
+      std::call_once(init_flag, [&cached_feeds_fetches_manager, &new_ffm]() {
+        cached_feeds_fetches_manager = std::move(new_ffm);
+      });
     }
   }
 

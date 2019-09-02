@@ -13,6 +13,7 @@
 namespace onnxruntime {
 class ExecutionProviders;
 class FeedsFetchesManager;
+class MLValueCopyInfo;
 class Graph;
 class KernelDef;
 class KernelRegistryManager;
@@ -37,6 +38,12 @@ const std::string& GetNodeInputProviderType(const SessionState::NodeInfo& info);
 
 common::Status CopyOneInputAcrossDevices(const SessionState& session_state, const std::string& input_name,
                                          const OrtValue& orig_mlvalue, OrtValue& new_mlvalue);
+
+common::Status CalculateCopyInfoForFeeds(const SessionState& session_state,
+                                         const std::vector<std::string>& feed_names,
+                                         const std::vector<OrtDevice>& feed_devices,
+                                         bool& needed_copy,
+                                         std::vector<MLValueCopyInfo>& copy_info);
 
 // ExecuteGraph, writing cache info to FeedsFetchesManager to optimize feed and fetch usage across invocations when the
 // order and location of the feeds and fetches is unchanged.

@@ -143,7 +143,7 @@ Status Loop::Compute(OpKernelContext* ctx) const {
   ORT_RETURN_IF_ERROR(status);
 
   // create FeedsFetchesManager if needed and call LoopImpl::Execute
-  status = controlflow::detail::SubgraphExecuteHelper(cached_feeds_fetches_manager_, loop_impl);
+  status = controlflow::detail::SubgraphExecuteHelper(cached_feeds_fetches_manager_, loop_impl, manager_init_flag_);
 
   return status;
 }

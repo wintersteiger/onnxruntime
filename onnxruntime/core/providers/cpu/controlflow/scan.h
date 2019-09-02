@@ -25,5 +25,6 @@ class Scan final : public OpKernel {
   std::vector<int64_t> output_axes_;
 
   mutable std::unique_ptr<FeedsFetchesManager> cached_feeds_fetches_manager_;
+  mutable std::once_flag manager_init_flag_;
 };
 }  // namespace onnxruntime

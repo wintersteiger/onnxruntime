@@ -30,5 +30,7 @@ class If final : public OpKernel {
  private:
   mutable std::unique_ptr<FeedsFetchesManager> cached_then_feeds_fetches_manager_;
   mutable std::unique_ptr<FeedsFetchesManager> cached_else_feeds_fetches_manager_;
+  mutable std::once_flag then_manager_init_flag_;
+  mutable std::once_flag else_manager_init_flag_;
 };
 }  // namespace onnxruntime

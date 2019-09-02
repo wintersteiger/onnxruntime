@@ -173,6 +173,7 @@ class SessionState {
   const NameNodeInfoMapType& GetInputNodeInfoMap() const;
 
   void AddOutputNameToNodeInfoMapping(const std::string& output_name, const NodeInfo& node_info);
+  common::Status GetOutputNodeInfo(const std::string& output_name, std::vector<NodeInfo>& node_info_vec) const;
   const NameNodeInfoMapType& GetOutputNodeInfoMap() const;
 
   /// Add a SessionState instance for executing a subgraph in a Node
