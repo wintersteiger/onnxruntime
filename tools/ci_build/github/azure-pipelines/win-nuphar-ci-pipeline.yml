@@ -1,0 +1,56 @@
+jobs:
+- job: Windows_Nuphar_CI_Dev
+  timeoutInMinutes: 120
+
+  strategy:
+    maxParallel: 2
+    matrix:
+      Debug:
+        buildConfig: Debug
+      Release:
+        buildConfig: Release
+
+  variables:
+    buildDirectory: '$(Build.BinariesDirectory)'
+  steps:
+    - template: templates/set-test-data-variables-step.yml
+    - template: templates/windows-build-tools-setup-steps.yml
+      parameters:
+        EnvSetupScript: 'setup_env.bat'
+        buildArch: 'x64'
+        setVcvars: false
+
+    - task: CmdLine@1
+      displayName: 'Download LLVM'
+      inputs:
+        filename: '$(Build.BinariesDirectory)\azcopy.exe'
+        arguments: 'copy https://onnxruntimetestdata.blob.core.windows.net/models/llvm-6.0.1-Windows-x86_64-$(buildConfig).zip $(Build.BinariesDirectory)\llvm.zip'
+      timeoutInMinutes: 10
+
+    - task: ExtractFiles@1
+      displayName: 'unzip LLVM'
+      inputs:
+        archiveFilePatterns: '$(Build.BinariesDirectory)\llvm.zip' 
+        destinationFolder: '$(Build.BinariesDirectory)\llvm\$(buildConfig)'
+        #cleanDestinationFolder: true
+
+    - task: CmdLine@1
+      displayName: 'Build $(buildConfig)'
+      inputs:
+        filename: '$(Build.BinariesDirectory)\packages\python\python.exe'
+        arguments: '$(Build.SourcesDirectory)\tools\ci_build\build.py --config $(buildConfig) --build_dir $(Build.BinariesDirectory) --cmake_path $(Build.BinariesDirectory)\cmake\bin\cmake.exe --ctest_path $(Build.BinariesDirectory)\cmake\bin\ctest.exe --enable_pybind --use_mklml --use_tvm --use_llvm --llvm_path $(Build.BinariesDirectory)\llvm\$(buildConfig)\lib\cmake\llvm --use_nuphar --build_csharp --build_shared_lib --enable_onnx_tests --parallel'
+        workingDirectory: "$(Build.BinariesDirectory)"
+
+    - task: PublishTestResults@2
+      displayName: 'Publish unit test results'
+      inputs:
+        testResultsFiles: '**\*.results.xml'
+        searchFolder: '$(Build.BinariesDirectory)'
+        testRunTitle: 'Unit Test Run'
+      condition: succeededOrFailed()
+
+    - task: ms.vss-governance-buildtask.governance-build-task-component-detection.ComponentGovernanceComponentDetection@0
+      displayName: 'Component Detection'
+      condition: and(succeeded(), in(variables['Build.Reason'], 'IndividualCI', 'BatchedCI'))
+
+    - template: templates/clean-agent-build-directory-step.yml

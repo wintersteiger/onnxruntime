@@ -1,0 +1,45 @@
+#-------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+#--------------------------------------------------------------------------
+
+FROM ubuntu:16.04
+
+ARG PYTHON_VERSION=3.5
+ARG ONNXRUNTIME_REPO=https://github.com/Microsoft/onnxruntime
+ARG ONNXRUNTIME_SERVER_BRANCH=master
+
+ENV DEBIAN_FRONTEND noninteractive
+
+RUN apt-get update && \
+    apt-get install -y sudo git bash
+
+ENV PATH="/opt/cmake/bin:${PATH}"
+RUN git clone --single-branch --branch ${ONNXRUNTIME_SERVER_BRANCH} --recursive ${ONNXRUNTIME_REPO} onnxruntime
+RUN /onnxruntime/tools/ci_build/github/linux/docker/scripts/install_ubuntu.sh -p ${PYTHON_VERSION} && \
+    /onnxruntime/tools/ci_build/github/linux/docker/scripts/install_deps.sh
+
+# Build and Install LLVM
+ARG LLVM_VERSION=6.0.1
+RUN cd /tmp && \
+    wget --no-verbose http://releases.llvm.org/$LLVM_VERSION/llvm-$LLVM_VERSION.src.tar.xz && \
+    xz -d llvm-$LLVM_VERSION.src.tar.xz && \
+    tar xvf llvm-$LLVM_VERSION.src.tar && \
+    cd llvm-$LLVM_VERSION.src && \
+    mkdir -p build && \
+    cd build && \
+    cmake .. -DCMAKE_BUILD_TYPE=Release && \
+    cmake --build . -- -j$(nproc) && \
+    cmake -DCMAKE_INSTALL_PREFIX=/usr/local/llvm-$LLVM_VERSION -DBUILD_TYPE=Release -P cmake_install.cmake && \
+    cd /tmp && \
+    rm -rf llvm*
+
+WORKDIR /
+
+RUN mkdir -p /onnxruntime/build && \
+    pip3 install sympy packaging && \
+    python3 /onnxruntime/tools/ci_build/build.py --build_dir /onnxruntime/build --config Release --build_shared_lib --skip_submodule_sync --build_wheel --parallel --use_nuphar --use_mklml --use_tvm --use_llvm
+
+RUN pip3 install /onnxruntime/build/Release/dist/onnxruntime_nuphar-*.whl && \
+    rm -rf /onnxruntime && \
+    rm -rf /usr/local/llvm-$LLVM_VERSION

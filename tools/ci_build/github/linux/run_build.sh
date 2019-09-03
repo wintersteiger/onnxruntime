@@ -55,6 +55,11 @@ else
             --use_tensorrt --tensorrt_home /workspace/tensorrt \
             --cuda_home /usr/local/cuda \
             --cudnn_home /usr/local/cuda $BUILD_EXTR_PAR
+    elif [ $BUILD_DEVICE = "nuphar" ]; then
+        python3 $SCRIPT_DIR/../../build.py --build_dir /home/onnxruntimedev \
+            --config Debug Release --build_shared_lib \
+            --enable_onnx_tests --enable_pybind --use_nuphar \
+            --parallel --use_mklml --build_csharp --build_shared_lib --use_tvm --use_llvm $BUILD_EXTR_PAR
     else #cpu, ngraph and openvino
         python3 $SCRIPT_DIR/../../build.py --build_dir /build \
             --config Debug Release $COMMON_BUILD_ARGS $BUILD_EXTR_PAR

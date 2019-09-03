@@ -60,6 +60,10 @@ else
         IMAGE="ubuntu16.04"
         DOCKER_FILE=Dockerfile.ubuntu_openvino
         docker build -t "onnxruntime-$IMAGE" --build-arg BUILD_USER=onnxruntimedev --build-arg BUILD_UID=$(id -u) --build-arg OS_VERSION=16.04 --build-arg PYTHON_VERSION=${PYTHON_VER} --build-arg OPENVINO_VERSION=${OPENVINO_VERSION} -f Dockerfile.ubuntu_openvino .
+    elif [ $BUILD_DEVICE = "nuphar" ]; then
+        IMAGE="ubuntu16.04"
+        DOCKER_FILE=Dockerfile.ubuntu_nuphar
+        docker build -t "onnxruntime-$IMAGE" --build-arg BUILD_USER=onnxruntimedev --build-arg BUILD_UID=$(id -u) --build-arg PYTHON_VERSION=${PYTHON_VER} -f $DOCKER_FILE .
     else
         IMAGE="ubuntu16.04"
         if [ $BUILD_ARCH = "x86" ]; then
@@ -79,7 +83,7 @@ if [ -z "$NIGHTLY_BUILD" ]; then
     set NIGHTLY_BUILD=0
 fi
 
-if [ $BUILD_DEVICE = "cpu" ] || [ $BUILD_DEVICE = "ngraph" ] || [ $BUILD_DEVICE = "openvino" ] || [ $BUILD_DEVICE = "nnapi" ]; then
+if [ $BUILD_DEVICE = "cpu" ] || [ $BUILD_DEVICE = "ngraph" ] || [ $BUILD_DEVICE = "openvino" ] || [ $BUILD_DEVICE = "nnapi" ] || [ $BUILD_DEVICE = "nuphar" ]; then
     RUNTIME=
 else
     RUNTIME="--runtime=nvidia"
