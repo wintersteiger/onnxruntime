@@ -7,7 +7,6 @@
 #include "core/framework/op_kernel.h"
 
 namespace onnxruntime {
-namespace contrib {
 
 class ScatterNDBase
 {
@@ -45,5 +44,4 @@ private:
   Status ScatterString(const Prepare& p) const;
 };
 
-} // namespace contrib
 } // namespace onnxruntime

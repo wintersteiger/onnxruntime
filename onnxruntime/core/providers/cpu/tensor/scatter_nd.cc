@@ -1,16 +1,13 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-#include "contrib_ops/cpu/scatter_nd.h"
+#include "scatter_nd.h"
 
 namespace onnxruntime {
-namespace contrib     {
 
-ONNX_OPERATOR_KERNEL_EX(
+ONNX_CPU_OPERATOR_KERNEL(
     ScatterND,
-    kMSDomain,
-    1,
-    kCpuExecutionProvider,
+    11,
     KernelDefBuilder()
         .TypeConstraint("T",    DataTypeImpl::AllTensorTypes())
         .TypeConstraint("Tind", DataTypeImpl::GetTensorType<int64_t>()),
@@ -155,5 +152,4 @@ Status ScatterND::ScatterString(const Prepare& p) const {
   return Status::OK();
 }
 
-}
 }
