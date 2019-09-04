@@ -12,7 +12,7 @@
 
 namespace onnxruntime {
 
-class Loop final : public OpKernel, public controlflow::detail::IControlFlowNode {
+class Loop final : public OpKernel, public controlflow::IControlFlowNode {
  public:
   Loop(const OpKernelInfo& info) : OpKernel(info) {
     // make sure the attribute was present even though we don't need it here.

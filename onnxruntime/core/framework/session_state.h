@@ -72,6 +72,10 @@ class SessionState {
     return (node_id < session_kernels_.size()) ? session_kernels_[node_id] : nullptr;
   }
 
+  OpKernel* GetMutableKernel(size_t node_id) {
+    return (node_id < session_kernels_.size()) ? session_kernels_[node_id] : nullptr;
+  }
+
   const ExecutionProviders& GetExecutionProviders() const noexcept { return execution_providers_; }
 
   const OrtValueNameIdxMap& GetOrtValueNameIdxMap() const noexcept { return ort_value_name_idx_map_; }
@@ -187,6 +191,10 @@ class SessionState {
   const SessionState* GetSubgraphSessionState(onnxruntime::NodeIndex index, const std::string& attribute_name) const;
 
   SessionState* GetMutableSubgraphSessionState(onnxruntime::NodeIndex index, const std::string& attribute_name);
+
+  // Remove the SessionState for a node containing a subgraph.
+  // If the node isn't going to be executed by the CPU provider we don't need it.
+  void RemoveSubgraphSessionState(onnxruntime::NodeIndex index);
 
   concurrency::ThreadPool* GetThreadPool() const { return thread_pool_; }
 

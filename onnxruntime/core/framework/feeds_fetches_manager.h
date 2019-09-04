@@ -72,7 +72,7 @@ class FeedsFetchesManager {
   const std::vector<MLValueCopyInfo>& GetFetchesDeviceCopyInfo() const { return fetches_device_copy_info_; }
 
   const DeviceCopyChecks& GetDeviceCopyChecks() const { return device_copy_checks_; }
-  void SetDeviceCopyChecks(DeviceCopyChecks checks);
+  void SetDeviceCopyChecks(DeviceCopyCheck input_copy_needed, DeviceCopyCheck output_copy_needed);
 
  private:
   ORT_DISALLOW_COPY_ASSIGNMENT_AND_MOVE(FeedsFetchesManager);

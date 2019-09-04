@@ -14,8 +14,6 @@ namespace onnxruntime {
 class Graph;
 
 namespace controlflow {
-namespace detail {
-
 class IControlFlowNode {
  public:
   // helper to create the copy info upfront for the feeds and fetches used in each subgraph execution
@@ -25,6 +23,8 @@ class IControlFlowNode {
                                                    const std::string& attribute_name,
                                                    const SessionState& subgraph_session_state) = 0;
 };
+
+namespace detail {
 
 const OrtAllocatorInfo& FindAllocatorInfoForValue(const SessionState& session_state,
                                                   const std::string& name);

@@ -182,10 +182,10 @@ static common::Status CalculateStaticCopyInfoForFetches(const SessionState& sess
 common::Status InitializeFeedFetchCopyInfo(const SessionState& session_state,
                                            FeedsFetchesManager& feeds_fetches_manager) {
   // if we only have CPU based EPs we can skip all the copy logic
-  auto need_device_copy_check = HaveCpuExecutionProvidersOnly(session_state.GetExecutionProviders());
+  auto cpu_only = HaveCpuExecutionProvidersOnly(session_state.GetExecutionProviders());
 
-  if (!need_device_copy_check) {
-    feeds_fetches_manager.SetDeviceCopyChecks({DeviceCopyCheck::NoCopy, DeviceCopyCheck::NoCopy});
+  if (cpu_only) {
+    feeds_fetches_manager.SetDeviceCopyChecks(DeviceCopyCheck::NoCopy, DeviceCopyCheck::NoCopy);
   } else {
     // setup all the static info about where the graph inputs and outputs are located
     auto info = feeds_fetches_manager.GetFeedsFetchesInfo();
@@ -248,6 +248,9 @@ common::Status FinalizeFeedFetchCopyInfo(const SessionState& session_state,
                                          FeedsFetchesManager& feeds_fetches_manager,
                                          const std::vector<OrtDevice>& feed_locations,
                                          const std::vector<const OrtAllocatorInfo*>& fetch_alloc_info) {
+  if (feeds_fetches_manager.GetDeviceCopyChecks().status == DeviceCopyCheck::NoCopy)
+    return Status::OK();
+
   bool need_copy = FinalizeCopyInfoForFeeds(feed_locations, feeds_fetches_manager.GetMutableFeedsDeviceCopyInfo());
   DeviceCopyCheck input_copy = need_copy ? DeviceCopyCheck::Copy : DeviceCopyCheck::NoCopy;
 
@@ -255,16 +258,19 @@ common::Status FinalizeFeedFetchCopyInfo(const SessionState& session_state,
                                          feeds_fetches_manager.GetMutableFetchesDeviceCopyInfo());
   DeviceCopyCheck output_copy = need_copy ? DeviceCopyCheck::Copy : DeviceCopyCheck::NoCopy;
 
-  feeds_fetches_manager.SetDeviceCopyChecks({input_copy, output_copy});
+  feeds_fetches_manager.SetDeviceCopyChecks(input_copy, output_copy);
 
   return Status::OK();
 }
 
 // Finalize the copy info using the OrtValue instances for the feeds and fetches
 static common::Status FinalizeFeedFetchCopyInfo(const SessionState& session_state,
-                                                FeedsFetchesManager& feed_fetches_manager,
+                                                FeedsFetchesManager& feeds_fetches_manager,
                                                 const std::vector<OrtValue>& feeds,
                                                 std::vector<OrtValue>& fetches) {
+  if (feeds_fetches_manager.GetDeviceCopyChecks().status == DeviceCopyCheck::NoCopy)
+    return Status::OK();
+
   auto num_inputs = feeds.size();
   auto num_outputs = fetches.size();
 
@@ -288,7 +294,7 @@ static common::Status FinalizeFeedFetchCopyInfo(const SessionState& session_stat
     }
   }
 
-  auto status = FinalizeFeedFetchCopyInfo(session_state, feed_fetches_manager, feed_locations, fetch_alloc_info);
+  auto status = FinalizeFeedFetchCopyInfo(session_state, feeds_fetches_manager, feed_locations, fetch_alloc_info);
 
   return status;
 }
@@ -360,8 +366,7 @@ static common::Status ExecuteGraphImpl(const SessionState& session_state,
   const auto& device_copy_checks = feeds_fetches_manager.GetDeviceCopyChecks();
 
   // see if we can skip copies due to the types of execution providers available
-  if (device_copy_checks.input_copy_needed == DeviceCopyCheck::NoCopy &&
-      device_copy_checks.output_copy_needed == DeviceCopyCheck::NoCopy) {
+  if (device_copy_checks.status == DeviceCopyCheck::NoCopy) {
     // no device copies are needed so simple execute
     ORT_RETURN_IF_ERROR(p_exec->Execute(session_state,
                                         feeds_fetches_info.feeds_mlvalue_idxs, feeds,
@@ -419,18 +424,12 @@ common::Status ExecuteGraph(const SessionState& session_state,
                             const logging::Logger& logger) {
   ORT_RETURN_IF_ERROR(utils::InitializeFeedFetchCopyInfo(session_state, feeds_fetches_manager));
 
-  const auto& device_copy_checks = feeds_fetches_manager.GetDeviceCopyChecks();
+  // finalize the copy info using the provided feeds and fetches. will update device_copy_checks in the background
+  auto status = FinalizeFeedFetchCopyInfo(session_state, feeds_fetches_manager, feeds, fetches);
+  ORT_RETURN_IF_ERROR(status);
 
-  // if we potentially have to copy finalize the copy info
-  if (device_copy_checks.input_copy_needed != DeviceCopyCheck::NoCopy ||
-      device_copy_checks.output_copy_needed != DeviceCopyCheck::NoCopy) {
-    // finalize the copy info using the provided feeds and fetches. will update device_copy_checks in the background
-    auto status = FinalizeFeedFetchCopyInfo(session_state, feeds_fetches_manager, feeds, fetches);
-    ORT_RETURN_IF_ERROR(status);
-  }
-
-  auto status = ExecuteGraphImpl(session_state, feeds_fetches_manager, feeds, fetches, {},
-                                 sequential_execution, terminate_flag, logger);
+  status = ExecuteGraphImpl(session_state, feeds_fetches_manager, feeds, fetches, {},
+                            sequential_execution, terminate_flag, logger);
 
   return status;
 }

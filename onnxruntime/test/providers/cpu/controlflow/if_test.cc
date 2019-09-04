@@ -23,7 +23,7 @@ struct RunOptions {
   bool include_dim_values_in_subgraph = true;
   bool mixed_execution_providers = false;
 };
-}
+}  // namespace
 
 static const ONNX_NAMESPACE::GraphProto CreateSubgraph(bool then_branch, const RunOptions& options);
 
@@ -216,8 +216,8 @@ void RunTest(bool condition_value,
     excluded_providers.insert(kTensorrtExecutionProvider);
   }
   if (options.mixed_execution_providers) {
-    // we want the CUDA provider to be first, and the CPU provider second. all except the Scannode should run on
-    // CUDA given that, which creates the scenario where we need to copy to/from CPU to execute the Scan node correctly.
+    // we want the CUDA provider to be first, and the CPU provider second. all except the If should run on
+    // CUDA given that, which creates the scenario where we need to copy to/from CPU to execute the If node correctly.
     std::vector<std::unique_ptr<IExecutionProvider>> execution_providers;
     execution_providers.push_back(DefaultCudaExecutionProvider());
     execution_providers.push_back(DefaultCpuExecutionProvider());

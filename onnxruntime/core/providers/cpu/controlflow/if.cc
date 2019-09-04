@@ -57,7 +57,7 @@ ONNX_CPU_OPERATOR_KERNEL(If,
                          If);
 
 struct If::Info {
-  If::Info(const GraphViewer& subgraph_in, const onnxruntime::Node& node)
+  If::Info(const onnxruntime::Node& node, const GraphViewer& subgraph_in)
       : subgraph{subgraph_in} {
     num_implicit_inputs = static_cast<int>(node.ImplicitInputDefs().size());
     num_outputs = static_cast<int>(node.OutputDefs().size());
@@ -156,6 +156,17 @@ class IfImpl {
 //  return Status::OK();
 //}
 
+If::If(const OpKernelInfo& info) : OpKernel(info) {
+  // make sure the required attributes are present even though we don't need it here.
+  // The GraphProto attributes are loaded as a Graph instance by main Graph::Resolve,
+  // and a SessionState instance for executing the subgraph is created by InferenceSession.
+  // This is available via Info().GetSubgraphSessionState("attribute_name") when Compute is called.
+  ONNX_NAMESPACE::GraphProto proto;
+  ORT_ENFORCE(info.GetAttr<ONNX_NAMESPACE::GraphProto>("then_branch", &proto).IsOK());
+  ORT_ENFORCE(info.GetAttr<ONNX_NAMESPACE::GraphProto>("else_branch", &proto).IsOK());
+  ORT_IGNORE_RETURN_VALUE(proto);
+}
+
 If::~If() = default;
 
 common::Status If::CreateFeedsFetchesManager(const SessionState& session_state,
@@ -167,24 +178,32 @@ common::Status If::CreateFeedsFetchesManager(const SessionState& session_state,
                                         : else_info_;
 
   ORT_ENFORCE(info == nullptr);
-  info = std::make_unique<If::Info>(*session_state.GetGraphViewer(), node);
+  info = std::make_unique<If::Info>(node, *subgraph_session_state.GetGraphViewer());
 
   // all inputs are implicit
   std::vector<std::string> feed_names;
   feed_names.reserve(info->num_implicit_inputs);
 
+  const auto& subgraph_map = subgraph_session_state.GetOrtValueNameIdxMap();
+
   for (auto& entry : node.ImplicitInputDefs()) {
-    feed_names.push_back(entry->Name());
+    // prune out entries that aren't in this subgraph as the 'then' and 'else' subgraphs are different
+    // and implicit inputs covers both
+    int idx;
+    if (subgraph_map.GetIdx(entry->Name(), idx).IsOK()) {
+      feed_names.push_back(entry->Name());
+    }
   }
 
   std::unique_ptr<FeedsFetchesManager> ffm;
-  auto status = FeedsFetchesManager::Create(feed_names, info->subgraph_output_names, session_state, ffm);
+  auto status = FeedsFetchesManager::Create(feed_names, info->subgraph_output_names, subgraph_session_state, ffm);
   ORT_RETURN_IF_ERROR(status);
 
-  status = utils::InitializeFeedFetchCopyInfo(session_state, *ffm);
+  status = utils::InitializeFeedFetchCopyInfo(subgraph_session_state, *ffm);
   ORT_RETURN_IF_ERROR(status);
 
-  // default to CPU for all and override in FindDevicesForFeeds
+  // default to CPU for all and override in FindDevicesForFeeds.
+  // Use session state for this node and not the subgraph when looking for feed info
   std::vector<OrtDevice> feed_locations(feed_names.size());
   controlflow::detail::FindDevicesForFeeds(session_state, feed_names, feed_locations);
 
@@ -198,7 +217,7 @@ common::Status If::CreateFeedsFetchesManager(const SessionState& session_state,
     fetch_locations.push_back(&alloc_info);
   }
 
-  status = utils::FinalizeFeedFetchCopyInfo(session_state, *ffm, feed_locations, fetch_locations);
+  status = utils::FinalizeFeedFetchCopyInfo(subgraph_session_state, *ffm, feed_locations, fetch_locations);
 
   if (status.IsOK()) {
     if (attribute_name == "then_branch")

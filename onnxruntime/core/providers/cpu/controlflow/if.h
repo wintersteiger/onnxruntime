@@ -13,18 +13,19 @@
 namespace onnxruntime {
 class SessionState;
 
-class If final : public OpKernel, public controlflow::detail::IControlFlowNode {
+class If final : public OpKernel, public controlflow::IControlFlowNode {
  public:
-  If(const OpKernelInfo& info) : OpKernel(info) {
-    // make sure the required attributes are present even though we don't need it here.
-    // The GraphProto attributes are loaded as a Graph instance by main Graph::Resolve,
-    // and a SessionState instance for executing the subgraph is created by InferenceSession.
-    // This is available via Info().GetSubgraphSessionState("attribute_name") when Compute is called.
-    ONNX_NAMESPACE::GraphProto proto;
-    ORT_ENFORCE(info.GetAttr<ONNX_NAMESPACE::GraphProto>("then_branch", &proto).IsOK());
-    ORT_ENFORCE(info.GetAttr<ONNX_NAMESPACE::GraphProto>("else_branch", &proto).IsOK());
-    ORT_IGNORE_RETURN_VALUE(proto);
-  }
+  If(const OpKernelInfo& info);
+  //If(const OpKernelInfo& info) : OpKernel(info) {
+  //  // make sure the required attributes are present even though we don't need it here.
+  //  // The GraphProto attributes are loaded as a Graph instance by main Graph::Resolve,
+  //  // and a SessionState instance for executing the subgraph is created by InferenceSession.
+  //  // This is available via Info().GetSubgraphSessionState("attribute_name") when Compute is called.
+  //  ONNX_NAMESPACE::GraphProto proto;
+  //  ORT_ENFORCE(info.GetAttr<ONNX_NAMESPACE::GraphProto>("then_branch", &proto).IsOK());
+  //  ORT_ENFORCE(info.GetAttr<ONNX_NAMESPACE::GraphProto>("else_branch", &proto).IsOK());
+  //  ORT_IGNORE_RETURN_VALUE(proto);
+  //}
 
   Status Compute(OpKernelContext* ctx) const override;
 

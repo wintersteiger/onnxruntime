@@ -12,7 +12,7 @@
 
 namespace onnxruntime {
 template <int OpSet>
-class Scan final : public OpKernel, public controlflow::detail::IControlFlowNode {
+class Scan final : public OpKernel, public controlflow::IControlFlowNode {
  public:
   Scan(const OpKernelInfo& info);
 

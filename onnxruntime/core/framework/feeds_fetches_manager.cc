@@ -53,17 +53,21 @@ Status FeedsFetchesManager::Create(const std::vector<std::string>& feed_names,
 
 FeedsFetchesManager::FeedsFetchesManager(FeedsFetchesInfo&& info, const SessionState& session_state)
     : feeds_fetches_info_{info} {
+  // init with default values
+  feeds_device_copy_info_.resize(info.feed_names.size());
+  fetches_device_copy_info_.resize(info.output_names.size());
 }
 
-void FeedsFetchesManager::SetDeviceCopyChecks(DeviceCopyChecks checks) {
-  ORT_ENFORCE(checks.input_copy_needed != DeviceCopyCheck::Unknown &&
-              checks.output_copy_needed != DeviceCopyCheck::Unknown);
+void FeedsFetchesManager::SetDeviceCopyChecks(DeviceCopyCheck input_copy_needed, DeviceCopyCheck output_copy_needed) {
+  ORT_ENFORCE(input_copy_needed != DeviceCopyCheck::Unknown &&
+              output_copy_needed != DeviceCopyCheck::Unknown);
 
-  device_copy_checks_ = checks;
+  device_copy_checks_.input_copy_needed = input_copy_needed;
+  device_copy_checks_.output_copy_needed = output_copy_needed;
 
   // make sure overall status is correct
   device_copy_checks_.status =
-      checks.input_copy_needed == DeviceCopyCheck::NoCopy && checks.output_copy_needed == DeviceCopyCheck::NoCopy
+      input_copy_needed == DeviceCopyCheck::NoCopy && output_copy_needed == DeviceCopyCheck::NoCopy
           ? DeviceCopyCheck::NoCopy
           : DeviceCopyCheck::Copy;
 }

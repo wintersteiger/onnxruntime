@@ -44,6 +44,7 @@
 #include "core/optimizer/graph_transformer.h"
 #include "core/optimizer/insert_cast_transformer.h"
 #include "core/optimizer/transformer_memcpy.h"
+#include "core/providers/cpu/controlflow/utils.h"
 #include "core/providers/cpu/cpu_execution_provider.h"
 #ifdef USE_CUDA
 #include "core/providers/cuda/gpu_data_transfer.h"
@@ -388,11 +389,6 @@ common::Status InferenceSession::TransformGraph(onnxruntime::Graph& graph,
 /// This will be initialized by InitializeSubgraphSessions.
 common::Status InferenceSession::CreateSubgraphSessionState(Graph& graph, SessionState& session_state) {
   for (auto& node : graph.Nodes()) {
-    // we only need subgraph session state for control flow nodes being handled by the CPU execution provider
-    if (node.GetExecutionProviderType() != kCpuExecutionProvider) {
-      continue;
-    }
-
     for (auto& entry : node.GetAttributeNameToMutableSubgraphMap()) {
       auto& name = entry.first;
       Graph* subgraph = entry.second;
@@ -431,6 +427,13 @@ common::Status InferenceSession::CreateSubgraphSessionState(Graph& graph, Sessio
 /// @remarks We pass in graph and session_state so we can handled nested subgraphs in the future
 common::Status InferenceSession::InitializeSubgraphSessions(Graph& graph, SessionState& session_state) {
   for (auto& node : graph.Nodes()) {
+    // We only need subgraph session state for control flow nodes being handled by the CPU execution provider.
+    // Remove it if it's not needed.
+    if (node.ContainsSubgraph() && node.GetExecutionProviderType() != kCpuExecutionProvider) {
+      session_state.RemoveSubgraphSessionState(node.Index());
+      continue;
+    }
+
     for (const auto& entry : node.GetAttributeNameToMutableSubgraphMap()) {
       auto& name = entry.first;
       Graph& subgraph = *entry.second;
@@ -448,6 +451,12 @@ common::Status InferenceSession::InitializeSubgraphSessions(Graph& graph, Sessio
 
       // LOGS(*session_logger_, VERBOSE) << std::make_pair(subgraph_info.session_state->GetExecutionPlan(),
       //                                                   &*subgraph_info.session_state);
+
+      // setup all the info for handling the feeds and fetches used in subraph execution
+      auto* p_op_kernel = session_state.GetMutableKernel(node.Index());
+      ORT_ENFORCE(p_op_kernel);
+      auto& control_flow_kernel = dynamic_cast<controlflow::IControlFlowNode&>(*p_op_kernel);
+      ORT_RETURN_IF_ERROR(control_flow_kernel.CreateFeedsFetchesManager(session_state, name, *subgraph_session_state));
 
       // recurse
       ORT_RETURN_IF_ERROR(InitializeSubgraphSessions(subgraph, *subgraph_session_state));
