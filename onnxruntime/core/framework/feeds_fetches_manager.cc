@@ -5,6 +5,7 @@
 
 #include "core/framework/execution_providers.h"
 #include "core/framework/ort_value_name_idx_map.h"
+#include "core/framework/utils.h"
 
 namespace onnxruntime {
 common::Status FeedsFetchesInfo::MapNamesToMLValueIdxs(const std::vector<std::string>& names,
@@ -41,15 +42,17 @@ Status FeedsFetchesInfo::SetMLValueIdxs(const OrtValueNameIdxMap& ort_value_name
 
 Status FeedsFetchesManager::Create(const std::vector<std::string>& feed_names,
                                    const std::vector<std::string>& output_names,
-                                   const OrtValueNameIdxMap& ort_value_name_idx_map,
+                                   const SessionState& session_state,
                                    std::unique_ptr<FeedsFetchesManager>& feed_fetch_manager) {
-  FeedsFetchesInfo info{feed_names, output_names};
+  FeedsFetchesInfo info{feed_names, output_names, session_state.GetOrtValueNameIdxMap()};
 
-  ORT_RETURN_IF_ERROR(info.SetMLValueIdxs(ort_value_name_idx_map));
-
-  feed_fetch_manager = std::make_unique<FeedsFetchesManager>(std::move(info));
+  feed_fetch_manager = std::make_unique<FeedsFetchesManager>(std::move(info), session_state);
 
   return Status::OK();
+}
+
+FeedsFetchesManager::FeedsFetchesManager(FeedsFetchesInfo&& info, const SessionState& session_state)
+    : feeds_fetches_info_{info} {
 }
 
 void FeedsFetchesManager::SetDeviceCopyChecks(DeviceCopyChecks checks) {

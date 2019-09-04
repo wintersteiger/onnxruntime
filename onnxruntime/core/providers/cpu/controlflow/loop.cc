@@ -12,6 +12,7 @@
 #include "core/providers/cpu/controlflow/loop.h"
 #include "core/providers/cpu/controlflow/utils.h"
 
+#include "core/framework/allocator.h"
 #include "core/framework/framework_common.h"
 #include "core/framework/op_kernel_context_internal.h"
 #include "core/framework/sequential_executor.h"
@@ -87,19 +88,76 @@ ONNX_CPU_OPERATOR_KERNEL(Loop,
                              .TypeConstraint("V", DataTypeImpl::AllTensorTypes()),
                          Loop);
 
+struct Loop::Info {
+  Loop::Info(const GraphViewer& subgraph_in, const onnxruntime::Node& node)
+      : subgraph{subgraph_in} {
+    // 'M' input to Loop is replaced by iter_num when calling the subgraph. 'cond' is passed through, so
+    // the number of explicit subgraph inputs == the number of Loop inputs
+
+    num_loop_carried_vars = static_cast<int>(node.InputDefs().size()) - 2;  // skip 'M' and 'cond'
+    num_implicit_inputs = static_cast<int>(node.ImplicitInputDefs().size());
+    num_subgraph_inputs = num_loop_carried_vars + 2;  // iter_num, cond, loop carried vars
+    num_outputs = static_cast<int>(node.OutputDefs().size());
+
+    auto& subgraph_inputs = subgraph.GetInputs();
+    auto& subgraph_outputs = subgraph.GetOutputs();
+
+    // we know how many inputs we are going to call the subgraph with based on the Loop inputs,
+    // and that value is in num_subgraph_inputs.
+    // validate that the subgraph has that many inputs.
+    if (static_cast<size_t>(num_subgraph_inputs) != subgraph_inputs.size()) {
+      auto status = ORT_MAKE_STATUS(ONNXRUNTIME, FAIL,
+                                    "Graph in 'body' attribute of Loop should have ",
+                                    num_subgraph_inputs, " inputs. Found:", subgraph_inputs.size());
+      ORT_THROW(status);
+    }
+
+    // check num outputs are correct. the 'cond' output from the subgraph is not a Loop output, so diff is 1
+    auto num_subgraph_outputs = subgraph_outputs.size();
+    if (num_subgraph_outputs - 1 != static_cast<size_t>(num_outputs)) {
+      auto status = ORT_MAKE_STATUS(ONNXRUNTIME, FAIL, "'Loop' node has ", num_outputs,
+                                    " outputs so the subgraph requires ", num_outputs + 1,
+                                    " but has ", num_subgraph_outputs);
+      ORT_THROW(status);
+    }
+
+    subgraph_input_names.reserve(num_subgraph_inputs);
+    for (int i = 0; i < num_subgraph_inputs; ++i) {
+      subgraph_input_names.push_back(subgraph_inputs[i]->Name());
+    }
+
+    // save list of subgraph output names in their provided order to use when fetching the results
+    // from each subgraph execution. the Loop outputs will match this order.
+    subgraph_output_names.reserve(num_outputs);
+    for (size_t i = 0; i < num_outputs; ++i) {
+      auto& output = subgraph_outputs[i];
+      subgraph_output_names.push_back(output->Name());
+    }
+  }
+
+  const GraphViewer& subgraph;
+
+  int num_loop_carried_vars;
+  int num_implicit_inputs;
+  int num_subgraph_inputs;
+  int num_outputs;
+
+  std::vector<std::string> subgraph_input_names;
+  std::vector<std::string> subgraph_output_names;
+};
+
 class LoopImpl {
  public:
   LoopImpl(OpKernelContextInternal& context,
-           const SessionState& session_state);
+           const SessionState& session_state,
+           const Loop::Info& info);
 
   // Initialize by validating all the inputs, and allocating the output tensors
   Status Initialize();
 
-  Status CreateFeedsFetchesManager(std::unique_ptr<FeedsFetchesManager>& ffm);
-
   // Execute the batch, by iterating the sequence in each batch entry
   // and calling the subgraph with each item in the sequence.
-  Status Execute(FeedsFetchesManager* ffm, const FeedsFetchesManager* cached_ffm);
+  Status Execute(const FeedsFetchesManager& cached_ffm);
 
  private:
   void CreateInitialFeeds(std::vector<OrtValue>& feeds);
@@ -110,59 +168,100 @@ class LoopImpl {
 
   OpKernelContextInternal& context_;
   const SessionState& session_state_;
-  const GraphViewer& subgraph_;
+  const Loop::Info& info_;
 
   int64_t max_trip_count_;
   bool condition_;
-
-  int num_loop_carried_vars_;
-  int num_subgraph_inputs_;
-  int num_outputs_;
 
   std::unordered_map<std::string, const OrtValue*> implicit_inputs_;
 
   OrtValue iter_num_mlvalue_;
   OrtValue condition_mlvalue_;
 
-  std::vector<std::string> subgraph_input_names_;
-  std::vector<std::string> subgraph_output_names_;
-
   // collection of OrtValue outputs from each loop iteration for the loop outputs.
   // the order from the subgraph matches the order from the loop output
   std::vector<std::vector<OrtValue>> loop_output_tensors_;
 };
 
+common::Status Loop::CreateFeedsFetchesManager(const SessionState& session_state,
+                                               const std::string& attribute_name,
+                                               const SessionState& subgraph_session_state) {
+  const auto& node = Node();
+  ORT_ENFORCE(info_ == nullptr);
+  info_ = std::make_unique<Loop::Info>(*subgraph_session_state.GetGraphViewer(), node);
+
+  std::vector<std::string> feed_names;
+  feed_names.reserve(info_->num_subgraph_inputs + info_->num_implicit_inputs);
+
+  std::copy(info_->subgraph_input_names.cbegin(),
+            info_->subgraph_input_names.cend(),
+            std::back_inserter(feed_names));
+
+  for (auto& entry : node.ImplicitInputDefs()) {
+    feed_names.push_back(entry->Name());
+  }
+
+  std::unique_ptr<FeedsFetchesManager> ffm;
+  auto status = FeedsFetchesManager::Create(feed_names, info_->subgraph_output_names, subgraph_session_state, ffm);
+  ORT_RETURN_IF_ERROR(status);
+
+  status = utils::InitializeFeedFetchCopyInfo(subgraph_session_state, *ffm);
+  ORT_RETURN_IF_ERROR(status);
+
+  // default to CPU for all
+  std::vector<OrtDevice> feed_locations(feed_names.size());
+
+  // iter num and condition are created on CPU via MakeScalarMLValue so skip those and just process all the
+  // OrtValue's coming from external sources. use the SessionState from the control flow node for this lookup.
+  size_t start_at = 2;
+  controlflow::detail::FindDevicesForFeeds(session_state, feed_names, feed_locations, start_at);
+
+  // we don't provide pre-allocated fetches for Loop subgraph execution, so can use nullptr for all the fetch locations
+  std::vector<const OrtAllocatorInfo*> fetch_locations(info_->num_outputs, nullptr);
+  //fetch_locations.reserve(info_->num_outputs);
+
+  //const auto& fetch_copy_info = ffm->GetFetchesDeviceCopyInfo();
+
+  //for (int i = 0, end = info_->num_outputs; i < end; ++i) {
+  //  fetch_locations.push_back(fetch_copy_info[i].source_device);
+  //}
+
+  status = utils::FinalizeFeedFetchCopyInfo(subgraph_session_state, *ffm, feed_locations, fetch_locations);
+
+  if (status.IsOK())
+    feeds_fetches_manager_ = std::move(ffm);
+
+  return status;
+}
+
 Status Loop::Compute(OpKernelContext* ctx) const {
   auto ctx_internal = static_cast<OpKernelContextInternal*>(ctx);
   auto* session_state = ctx_internal->SubgraphSessionState("body");
   ORT_ENFORCE(session_state, "Subgraph SessionState was not found for 'body' attribute.");
+  ORT_ENFORCE(feeds_fetches_manager_, "CreateFeedsFetchesManager must be called prior to execution of graph.");
 
-  LoopImpl loop_impl{*ctx_internal, *session_state};
+  LoopImpl loop_impl{*ctx_internal, *session_state, *info_};
 
   auto status = loop_impl.Initialize();
   ORT_RETURN_IF_ERROR(status);
 
-  // create FeedsFetchesManager if needed and call LoopImpl::Execute
-  status = controlflow::detail::SubgraphExecuteHelper(cached_feeds_fetches_manager_, loop_impl, manager_init_flag_);
+  status = loop_impl.Execute(*feeds_fetches_manager_);
 
   return status;
 }
 
 LoopImpl::LoopImpl(OpKernelContextInternal& context,
-                   const SessionState& session_state)
+                   const SessionState& session_state,
+                   const Loop::Info& subgraph_info)
     : context_{context},
       session_state_{session_state},
-      subgraph_{*session_state.GetGraphViewer()},
+      info_{subgraph_info},
       implicit_inputs_{context_.GetImplicitInputs()} {
   auto* max_trip_count_tensor = context.Input<Tensor>(0);
   max_trip_count_ = max_trip_count_tensor ? *max_trip_count_tensor->Data<int64_t>() : INT64_MAX;
 
   auto cond_tensor = context.Input<Tensor>(1);
   condition_ = cond_tensor ? *cond_tensor->Data<bool>() : true;
-
-  num_loop_carried_vars_ = context.InputCount() - 2;  // skip 'M' and 'cond'
-  num_subgraph_inputs_ = num_loop_carried_vars_ + 2;  // iter_num, cond, loop carried vars
-  num_outputs_ = context_.OutputCount();
 }
 
 template <typename T>
@@ -180,27 +279,6 @@ static OrtValue MakeScalarMLValue(AllocatorPtr& allocator, T value, bool is_1d) 
 
 Status LoopImpl::Initialize() {
   auto status = Status::OK();
-
-  auto& subgraph_inputs = subgraph_.GetInputs();
-
-  // we know how many inputs we are going to call the subgraph with based on the Loop inputs,
-  // and that value is in num_subgraph_inputs_.
-  // validate that the subgraph has that many inputs.
-  if (static_cast<size_t>(num_subgraph_inputs_) != subgraph_inputs.size()) {
-    return ORT_MAKE_STATUS(ONNXRUNTIME, FAIL,
-                           "Graph in 'body' attribute of Loop should have ",
-                           num_subgraph_inputs_, " inputs. Found:", subgraph_.GetInputs().size());
-  }
-
-  auto& subgraph_outputs = subgraph_.GetOutputs();
-  auto num_subgraph_outputs = subgraph_outputs.size();
-
-  // check num outputs are correct. the 'cond' output from the subgraph is not a Loop output, so diff is 1
-  if (num_subgraph_outputs - 1 != static_cast<size_t>(num_outputs_)) {
-    return ORT_MAKE_STATUS(ONNXRUNTIME, FAIL, "'Loop' node has ", num_outputs_,
-                           " outputs so the subgraph requires ", num_outputs_ + 1,
-                           " but has ", num_subgraph_outputs);
-  }
 
   auto* max_trip_count_tensor = context_.Input<Tensor>(0);
   auto* cond_tensor = context_.Input<Tensor>(1);
@@ -223,56 +301,28 @@ Status LoopImpl::Initialize() {
   status = context_.GetTempSpaceAllocator(&allocator);
   ORT_RETURN_IF_ERROR(status);
 
+  auto& subgraph_inputs = info_.subgraph.GetInputs();
+
   auto iter_num_rank = subgraph_inputs[0]->Shape()->dim_size();
   auto condition_rank = subgraph_inputs[1]->Shape()->dim_size();
 
   iter_num_mlvalue_ = MakeScalarMLValue<int64_t>(allocator, 0, iter_num_rank);
   condition_mlvalue_ = MakeScalarMLValue<bool>(allocator, condition_, condition_rank);
 
-  subgraph_input_names_.reserve(num_subgraph_inputs_);
-  for (int i = 0; i < num_subgraph_inputs_; ++i) {
-    subgraph_input_names_.push_back(subgraph_inputs[i]->Name());
-  }
-
-  subgraph_output_names_.reserve(num_subgraph_outputs);
-  loop_output_tensors_.resize(num_outputs_ - num_loop_carried_vars_);
-
-  // save list of subgraph output names in their provided order to use when fetching the results
-  // from each subgraph execution. the Loop outputs will match this order.
-  for (size_t i = 0; i < num_subgraph_outputs; ++i) {
-    auto& output = subgraph_outputs[i];
-    subgraph_output_names_.push_back(output->Name());
-  }
-
-  return status;
-}
-
-Status LoopImpl::CreateFeedsFetchesManager(std::unique_ptr<FeedsFetchesManager>& ffm) {
-  auto num_implicit_inputs = implicit_inputs_.size();
-  std::vector<std::string> feed_names;
-  feed_names.reserve(num_subgraph_inputs_ + num_implicit_inputs);
-
-  std::copy(subgraph_input_names_.cbegin(), subgraph_input_names_.cend(), std::back_inserter(feed_names));
-  for (auto& entry : implicit_inputs_) {
-    feed_names.push_back(entry.first);
-  }
-
-  auto status =
-      FeedsFetchesManager::Create(feed_names, subgraph_output_names_, session_state_.GetOrtValueNameIdxMap(), ffm);
+  loop_output_tensors_.resize(info_.num_outputs - info_.num_loop_carried_vars);
 
   return status;
 }
 
 void LoopImpl::CreateInitialFeeds(std::vector<OrtValue>& feeds) {
-  auto num_implicit_inputs = implicit_inputs_.size();
-  feeds.reserve(num_subgraph_inputs_ + num_implicit_inputs);
+  feeds.reserve(info_.num_subgraph_inputs + info_.num_implicit_inputs);
 
   // This ordering is the same as used in CreateFeedsFetchesManager
   feeds.push_back(iter_num_mlvalue_);
   feeds.push_back(condition_mlvalue_);
 
   // populate loop carried var inputs which conveniently start at slot 2 in both the Loop and subgraph inputs
-  for (int i = 2; i < num_subgraph_inputs_; ++i) {
+  for (int i = 2; i < info_.num_subgraph_inputs; ++i) {
     feeds.push_back(*context_.GetInputMLValue(i));
   }
 
@@ -289,13 +339,13 @@ void LoopImpl::SaveOutputsAndUpdateFeeds(const std::vector<OrtValue>& last_outpu
   // next_input: iter_num, cond, loop_vars. iter_num is re-used
 
   // simple copy for cond and loop carried vars. start at 1 to skip iter_num in input
-  for (int i = 1; i < num_subgraph_inputs_; ++i) {
+  for (int i = 1; i < info_.num_subgraph_inputs; ++i) {
     next_inputs[i] = last_outputs[i - 1];
   }
 
   // save loop outputs as we have to concatenate at the end
-  for (int j = num_loop_carried_vars_; j < num_outputs_; ++j) {
-    loop_output_tensors_[j - num_loop_carried_vars_].push_back(last_outputs[j + 1]);  // skip 'cond' in output
+  for (int j = info_.num_loop_carried_vars; j < info_.num_outputs; ++j) {
+    loop_output_tensors_[j - info_.num_loop_carried_vars].push_back(last_outputs[j + 1]);  // skip 'cond' in output
   }
 }
 
@@ -337,7 +387,7 @@ Status LoopImpl::ConcatenateLoopOutput(std::vector<OrtValue>& per_iteration_outp
   return Status::OK();
 }
 
-Status LoopImpl::Execute(FeedsFetchesManager* ffm, const FeedsFetchesManager* cached_ffm) {
+Status LoopImpl::Execute(const FeedsFetchesManager& ffm) {
   auto status = Status::OK();
 
   std::vector<OrtValue> feeds;
@@ -353,21 +403,8 @@ Status LoopImpl::Execute(FeedsFetchesManager* ffm, const FeedsFetchesManager* ca
       fetches.clear();
     }
 
-    // loop carried variables can change shape across iterations, and we don't know how many iterations
-    // there will be to allocate loop outputs upfront. due to that we can't use a custom fetch allocator
-    // for any outputs
-    if (cached_ffm) {
-      status = utils::ExecuteGraphWithCachedInfo(session_state_, *cached_ffm, feeds, fetches, {},
-                                                 /*sequential_execution*/ true, context_.GetTerminateFlag(),
-                                                 context_.Logger());
-    } else {
-      status = utils::ExecuteGraph(session_state_, *ffm, feeds, fetches, {},
-                                   /*sequential_execution*/ true, context_.GetTerminateFlag(), context_.Logger(),
-                                   /*cache_copy_info*/ true);
-
-      // after the first execution, use the cached information
-      cached_ffm = ffm;
-    }
+    status = utils::ExecuteSubgraph(session_state_, ffm, feeds, fetches, {},
+                                    /*sequential_execution*/ true, context_.GetTerminateFlag(), context_.Logger());
 
     ORT_RETURN_IF_ERROR(status);
 
@@ -388,14 +425,14 @@ Status LoopImpl::Execute(FeedsFetchesManager* ffm, const FeedsFetchesManager* ca
 
   // copy to Loop output
   if (iter_num_value != 0) {
-    for (int i = 0; i < num_loop_carried_vars_; ++i) {
+    for (int i = 0; i < info_.num_loop_carried_vars; ++i) {
       // need to allocate Loop output and copy OrtValue from fetches
       copy_tensor_from_mlvalue_to_output(fetches[i + 1], i);  // skip cond
     }
 
-    for (int i = num_loop_carried_vars_; i < num_outputs_; ++i) {
+    for (int i = info_.num_loop_carried_vars; i < info_.num_outputs; ++i) {
       // add last output
-      auto& per_iteration_outputs = loop_output_tensors_[i - num_loop_carried_vars_];
+      auto& per_iteration_outputs = loop_output_tensors_[i - info_.num_loop_carried_vars];
       per_iteration_outputs.push_back(fetches[i + 1]);  // skip cond
 
       ORT_RETURN_IF_ERROR(ConcatenateLoopOutput(per_iteration_outputs, i));
@@ -403,14 +440,14 @@ Status LoopImpl::Execute(FeedsFetchesManager* ffm, const FeedsFetchesManager* ca
   } else {
     // no iterations.
     // copy input loop carried vars to output.
-    for (int i = 0; i < num_loop_carried_vars_; ++i) {
+    for (int i = 0; i < info_.num_loop_carried_vars; ++i) {
       copy_tensor_from_mlvalue_to_output(feeds[i + 2], i);  // skip iter# and cond
     }
 
     // create empty outputs for loop outputs using the subgraph output shapes for the rank
-    auto& graph_outputs = subgraph_.GetOutputs();
+    auto& graph_outputs = info_.subgraph.GetOutputs();
 
-    for (int i = num_loop_carried_vars_; i < num_outputs_; ++i) {
+    for (int i = info_.num_loop_carried_vars; i < info_.num_outputs; ++i) {
       // get shape from subgraph output if possible to attempt to have the correct rank
       auto* graph_output = graph_outputs.at(i + 1);  // + 1 as first subgraph output is condition value
       auto* graph_output_shape = graph_output->Shape();
@@ -438,5 +475,5 @@ Status LoopImpl::Execute(FeedsFetchesManager* ffm, const FeedsFetchesManager* ca
     }
   }
   return status;
-}  // namespace onnxruntime
+}
 }  // namespace onnxruntime

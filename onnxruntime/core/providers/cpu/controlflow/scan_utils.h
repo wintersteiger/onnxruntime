@@ -163,7 +163,7 @@ Status AllocateOutput(OpKernelContextInternal& context, const GraphViewer& subgr
 Status CreateFeedsFetchesManager(const GraphViewer& subgraph, int num_variadic_inputs,
                                  std::unordered_map<std::string, const OrtValue*>& implicit_inputs,
                                  std::vector<std::string>& subgraph_output_names,
-                                 const OrtValueNameIdxMap& ort_value_name_idx_map,
+                                 const SessionState& session_state,
                                  std::unique_ptr<FeedsFetchesManager>& ffm);
 
 Status IterateSequence(OpKernelContextInternal& context, const SessionState& session_state,

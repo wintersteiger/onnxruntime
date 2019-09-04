@@ -12,8 +12,9 @@
 
 namespace onnxruntime {
 class ExecutionProviders;
+struct FeedsFetchesInfo;
 class FeedsFetchesManager;
-class MLValueCopyInfo;
+struct MLValueCopyInfo;
 class Graph;
 class KernelDef;
 class KernelRegistryManager;
@@ -39,26 +40,25 @@ const std::string& GetNodeInputProviderType(const SessionState::NodeInfo& info);
 common::Status CopyOneInputAcrossDevices(const SessionState& session_state, const std::string& input_name,
                                          const OrtValue& orig_mlvalue, OrtValue& new_mlvalue);
 
-common::Status CalculateCopyInfoForFeeds(const SessionState& session_state,
-                                         const std::vector<std::string>& feed_names,
-                                         const std::vector<OrtDevice>& feed_devices,
-                                         bool& needed_copy,
-                                         std::vector<MLValueCopyInfo>& copy_info);
+common::Status InitializeFeedFetchCopyInfo(const SessionState& session_state,
+                                           FeedsFetchesManager& feeds_fetches_manager);
 
-// ExecuteGraph, writing cache info to FeedsFetchesManager to optimize feed and fetch usage across invocations when the
-// order and location of the feeds and fetches is unchanged.
+common::Status FinalizeFeedFetchCopyInfo(const SessionState& session_state,
+                                         FeedsFetchesManager& feeds_fetches_manager,
+                                         const std::vector<OrtDevice>& feed_locations,
+                                         const std::vector<const OrtAllocatorInfo*>& fetch_alloc_info);
+
+//common::Status CreateSubraphFeedsFetchesManager(const SessionState& session_state, const std::string& attribute_name, const Graph& subgraph,
+//                                                IControlFlowNode& node) {}
+
 common::Status ExecuteGraph(const SessionState& session_state, FeedsFetchesManager& feeds_fetches_manager,
                             const std::vector<OrtValue>& feeds, std::vector<OrtValue>& fetches,
-                            const std::unordered_map<size_t, IExecutor::CustomAllocator>& fetch_allocators,
-                            bool sequential_execution, const bool& terminate_flag, const logging::Logger& logger,
-                            bool cache_copy_info = true);
+                            bool sequential_execution, const bool& terminate_flag, const logging::Logger& logger);
 
-// ExecuteGraph used the cached information in feeds_fetches_manager.
-common::Status ExecuteGraphWithCachedInfo(
-    const SessionState& session_state, const FeedsFetchesManager& feeds_fetches_manager,
-    const std::vector<OrtValue>& feeds, std::vector<OrtValue>& fetches,
-    const std::unordered_map<size_t, IExecutor::CustomAllocator>& fetch_allocators, bool sequential_execution,
-    const bool& terminate_flag, const logging::Logger& logger);
+common::Status ExecuteSubgraph(const SessionState& session_state, const FeedsFetchesManager& feeds_fetches_manager,
+                               const std::vector<OrtValue>& feeds, std::vector<OrtValue>& fetches,
+                               const std::unordered_map<size_t, IExecutor::CustomAllocator>& fetch_allocators,
+                               bool sequential_execution, const bool& terminate_flag, const logging::Logger& logger);
 
 #if defined(DEBUG_NODE_INPUTS_OUTPUTS)
 // to create a build with these enabled run the build script with

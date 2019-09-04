@@ -382,7 +382,7 @@ Status Scan8Impl::CreateLoopStateVariables(std::vector<std::vector<LoopStateVari
 
 Status Scan8Impl::CreateFeedsFetchesManager(std::unique_ptr<FeedsFetchesManager>& ffm) {
   return scan::detail::CreateFeedsFetchesManager(subgraph_, num_variadic_inputs_, implicit_inputs_,
-                                                 subgraph_output_names_, session_state_.GetOrtValueNameIdxMap(), ffm);
+                                                 subgraph_output_names_, session_state_, ffm);
 }
 
 Status Scan8Impl::Execute(FeedsFetchesManager* ffm, const FeedsFetchesManager* cached_ffm) {

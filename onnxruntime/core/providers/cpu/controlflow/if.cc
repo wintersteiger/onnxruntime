@@ -56,29 +56,64 @@ ONNX_CPU_OPERATOR_KERNEL(If,
                              .TypeConstraint("V", DataTypeImpl::AllTensorTypes()),
                          If);
 
+struct If::Info {
+  If::Info(const GraphViewer& subgraph_in, const onnxruntime::Node& node)
+      : subgraph{subgraph_in} {
+    num_implicit_inputs = static_cast<int>(node.ImplicitInputDefs().size());
+    num_outputs = static_cast<int>(node.OutputDefs().size());
+
+    //auto& subgraph_inputs = subgraph.GetInputs();
+    //auto num_subgraph_inputs = subgraph_inputs.size();
+    auto& subgraph_outputs = subgraph.GetOutputs();
+    auto num_subgraph_outputs = subgraph_outputs.size();
+
+    //subgraph_input_names.reserve(num_subgraph_inputs);
+    //for (int i = 0; i < num_subgraph_inputs; ++i) {
+    //  subgraph_input_names.push_back(subgraph_inputs[i]->Name());
+    //}
+
+    if (num_subgraph_outputs != static_cast<size_t>(num_outputs)) {
+      auto status = ORT_MAKE_STATUS(ONNXRUNTIME, FAIL, "'If' node has ", num_outputs,
+                                    " outputs which doesn't match the subgraph's ", num_subgraph_outputs, " outputs.");
+      ORT_THROW(status);
+    }
+
+    subgraph_output_names.reserve(num_subgraph_outputs);
+    for (size_t i = 0; i < num_subgraph_outputs; ++i) {
+      auto& output = subgraph_outputs[i];
+      subgraph_output_names.push_back(output->Name());
+    }
+  }
+
+  const GraphViewer& subgraph;
+
+  int num_implicit_inputs;
+  int num_outputs;
+
+  // std::vector<std::string> subgraph_input_names;
+  std::vector<std::string> subgraph_output_names;
+};
+
 class IfImpl {
  public:
   IfImpl(OpKernelContextInternal& context,
-         const SessionState& session_state);
+         const SessionState& session_state,
+         const If::Info& info);
 
   // Initialize by validating all the inputs, and allocating the output tensors
   Status Initialize();
 
-  Status CreateFeedsFetchesManager(std::unique_ptr<FeedsFetchesManager>& ffm);
-
   // Execute the batch, by iterating the sequence in each batch entry
   // and calling the subgraph with each item in the sequence.
-  Status Execute(FeedsFetchesManager* ffm, const FeedsFetchesManager* cached_ffm);
+  Status Execute(const FeedsFetchesManager& ffm);
 
  private:
   Status AllocateOutputTensors();
 
   OpKernelContextInternal& context_;
   const SessionState& session_state_;
-  const GraphViewer& subgraph_;
+  const If::Info& info_;
 
-  int num_outputs_;
-  std::vector<std::string> subgraph_output_names_;
   std::unordered_map<std::string, const OrtValue*> implicit_inputs_;
 
   enum class AllocationType {
@@ -90,6 +125,90 @@ class IfImpl {
   std::vector<std::pair<AllocationType, OrtValue>> outputs_;
 };
 
+// Status IfImpl::CreateFeedsFetchesManager(std::unique_ptr<FeedsFetchesManager>& ffm) {
+//  // we setup the FeedsFetchesInfo manually here as we need to skip implicit inputs that aren't in this subgraph
+//  FeedsFetchesInfo ffi;
+//
+//  auto num_inputs = implicit_inputs_.size();
+//  ffi.feed_names.reserve(num_inputs);
+//  ffi.feeds_mlvalue_idxs.reserve(num_inputs);
+//
+//  auto& ort_value_name_idx_map = session_state_.GetOrtValueNameIdxMap();
+//
+//  // pass in implicit inputs as feeds.
+//  for (auto& entry : implicit_inputs_) {
+//    // prune to values that are in this subgraph as the implicit inputs cover both 'then' and 'else' subgraphs.
+//    // alternatively we could track implicit inputs on a per-attribute basis in the node, but that
+//    // would make that tracking a bit more complicated.
+//    int idx;
+//    if (ort_value_name_idx_map.GetIdx(entry.first, idx).IsOK()) {
+//      ffi.feed_names.push_back(entry.first);
+//      ffi.feeds_mlvalue_idxs.push_back(idx);
+//    }
+//  }
+//
+//  ffi.output_names = subgraph_output_names_;
+//  ORT_RETURN_IF_ERROR(
+//      FeedsFetchesInfo::MapNamesToMLValueIdxs(ffi.output_names, ort_value_name_idx_map, ffi.fetches_mlvalue_idxs));
+//
+//  ffm = std::make_unique<FeedsFetchesManager>(std::move(ffi));
+//
+//  return Status::OK();
+//}
+
+If::~If() = default;
+
+common::Status If::CreateFeedsFetchesManager(const SessionState& session_state,
+                                             const std::string& attribute_name,
+                                             const SessionState& subgraph_session_state) {
+  const auto& node = Node();
+  std::unique_ptr<If::Info>& info = attribute_name == "then_branch"
+                                        ? then_info_
+                                        : else_info_;
+
+  ORT_ENFORCE(info == nullptr);
+  info = std::make_unique<If::Info>(*session_state.GetGraphViewer(), node);
+
+  // all inputs are implicit
+  std::vector<std::string> feed_names;
+  feed_names.reserve(info->num_implicit_inputs);
+
+  for (auto& entry : node.ImplicitInputDefs()) {
+    feed_names.push_back(entry->Name());
+  }
+
+  std::unique_ptr<FeedsFetchesManager> ffm;
+  auto status = FeedsFetchesManager::Create(feed_names, info->subgraph_output_names, session_state, ffm);
+  ORT_RETURN_IF_ERROR(status);
+
+  status = utils::InitializeFeedFetchCopyInfo(session_state, *ffm);
+  ORT_RETURN_IF_ERROR(status);
+
+  // default to CPU for all and override in FindDevicesForFeeds
+  std::vector<OrtDevice> feed_locations(feed_names.size());
+  controlflow::detail::FindDevicesForFeeds(session_state, feed_names, feed_locations);
+
+  // init to nullptr
+  std::vector<const OrtAllocatorInfo*> fetch_locations;
+
+  // we need the allocator info for each output from this node as we write directly into that
+  const auto& outputs = node.OutputDefs();
+  for (int i = 0, end = info->num_outputs; i < end; ++i) {
+    const auto& alloc_info = controlflow::detail::FindAllocatorInfoForValue(session_state, outputs[i]->Name());
+    fetch_locations.push_back(&alloc_info);
+  }
+
+  status = utils::FinalizeFeedFetchCopyInfo(session_state, *ffm, feed_locations, fetch_locations);
+
+  if (status.IsOK()) {
+    if (attribute_name == "then_branch")
+      then_feeds_fetches_manager_ = std::move(ffm);
+    else
+      else_feeds_fetches_manager_ = std::move(ffm);
+  }
+
+  return status;
+}
 Status If::Compute(OpKernelContext* ctx) const {
   auto ctx_internal = static_cast<OpKernelContextInternal*>(ctx);
 
@@ -99,49 +218,32 @@ Status If::Compute(OpKernelContext* ctx) const {
   auto* session_state = ctx_internal->SubgraphSessionState(attribute);
   ORT_ENFORCE(session_state, "Subgraph SessionState was not found for '", attribute, "' attribute.");
 
-  IfImpl impl{*ctx_internal, *session_state};
+  const auto& info = condition ? then_info_ : else_info_;
+  IfImpl impl{*ctx_internal, *session_state, *info};
 
   auto status = impl.Initialize();
   ORT_RETURN_IF_ERROR(status);
 
   // create FeedsFetchesManager if needed and call IfImpl::Execute
   if (condition) {
-    status = controlflow::detail::SubgraphExecuteHelper(cached_then_feeds_fetches_manager_, impl,
-                                                        then_manager_init_flag_);
+    status = impl.Execute(*then_feeds_fetches_manager_);
   } else {
-    status = controlflow::detail::SubgraphExecuteHelper(cached_else_feeds_fetches_manager_, impl,
-                                                        else_manager_init_flag_);
+    status = impl.Execute(*else_feeds_fetches_manager_);
   }
 
   return status;
 }
 
 IfImpl::IfImpl(OpKernelContextInternal& context,
-               const SessionState& session_state)
+               const SessionState& session_state,
+               const If::Info& info)
     : context_{context},
       session_state_{session_state},
-      subgraph_{*session_state.GetGraphViewer()},
+      info_{info},
       implicit_inputs_{context_.GetImplicitInputs()} {
-  num_outputs_ = context_.OutputCount();
 }
 
 Status IfImpl::Initialize() {
-  auto& graph_outputs = subgraph_.GetOutputs();
-  size_t num_subgraph_outputs = graph_outputs.size();
-
-  if (num_subgraph_outputs != static_cast<size_t>(num_outputs_)) {
-    return ORT_MAKE_STATUS(ONNXRUNTIME, FAIL, "'If' node has ", num_outputs_,
-                           " outputs which doesn't match the subgraph's ", num_subgraph_outputs, " outputs.");
-  }
-
-  subgraph_output_names_.reserve(num_subgraph_outputs);
-
-  // save list of subgraph output names in their provided order to use when fetching the results
-  // from each subgraph execution. the If outputs will match this order.
-  for (auto& output : graph_outputs) {
-    subgraph_output_names_.push_back(output->Name());
-  }
-
   auto status = AllocateOutputTensors();
   ORT_RETURN_IF_ERROR(status);
 
@@ -152,7 +254,7 @@ Status IfImpl::AllocateOutputTensors() {
   Status status = Status::OK();
   int index = 0;
 
-  for (auto& graph_output : subgraph_.GetOutputs()) {
+  for (auto& graph_output : info_.subgraph.GetOutputs()) {
     auto* graph_output_shape = graph_output->Shape();
     if (!graph_output_shape) {
       return ORT_MAKE_STATUS(ONNXRUNTIME, FAIL, "Subgraph must have the shape set for all outputs but ",
@@ -180,47 +282,17 @@ Status IfImpl::AllocateOutputTensors() {
   return Status::OK();
 }
 
-Status IfImpl::CreateFeedsFetchesManager(std::unique_ptr<FeedsFetchesManager>& ffm) {
-  // we setup the FeedsFetchesInfo manually here as we need to skip implicit inputs that aren't in this subgraph
-  FeedsFetchesInfo ffi;
-
-  auto num_inputs = implicit_inputs_.size();
-  ffi.feed_names.reserve(num_inputs);
-  ffi.feeds_mlvalue_idxs.reserve(num_inputs);
-
-  auto& ort_value_name_idx_map = session_state_.GetOrtValueNameIdxMap();
-
-  // pass in implicit inputs as feeds.
-  for (auto& entry : implicit_inputs_) {
-    // prune to values that are in this subgraph as the implicit inputs cover both 'then' and 'else' subgraphs.
-    // alternatively we could track implicit inputs on a per-attribute basis in the node, but that
-    // would make that tracking a bit more complicated.
-    int idx;
-    if (ort_value_name_idx_map.GetIdx(entry.first, idx).IsOK()) {
-      ffi.feed_names.push_back(entry.first);
-      ffi.feeds_mlvalue_idxs.push_back(idx);
-    }
-  }
-
-  ffi.output_names = subgraph_output_names_;
-  ORT_RETURN_IF_ERROR(
-      FeedsFetchesInfo::MapNamesToMLValueIdxs(ffi.output_names, ort_value_name_idx_map, ffi.fetches_mlvalue_idxs));
-
-  ffm = std::make_unique<FeedsFetchesManager>(std::move(ffi));
-
-  return Status::OK();
-}
-
-Status IfImpl::Execute(FeedsFetchesManager* ffm, const FeedsFetchesManager* cached_ffm) {
+Status IfImpl::Execute(const FeedsFetchesManager& ffm) {
   Status status = Status::OK();
-
-  auto num_inputs = implicit_inputs_.size();
-  std::vector<OrtValue> feeds;
-  feeds.reserve(num_inputs);
 
   // pass in implicit inputs as feeds.
   // use the FeedsFetchesInfo as that has the pruned names
-  auto& feed_names = cached_ffm ? cached_ffm->GetFeedsFetchesInfo().feed_names : ffm->GetFeedsFetchesInfo().feed_names;
+  auto& feed_names = ffm.GetFeedsFetchesInfo().feed_names;
+
+  auto num_inputs = feed_names.size();
+  std::vector<OrtValue> feeds;
+  feeds.reserve(num_inputs);
+
   for (auto& feed_name : feed_names) {
     const auto* feed_mlvalue = implicit_inputs_[feed_name];
     ORT_ENFORCE(feed_mlvalue, "All implicit inputs should have OrtValue instances by now. ", feed_name, " did not.");
@@ -231,8 +303,8 @@ Status IfImpl::Execute(FeedsFetchesManager* ffm, const FeedsFetchesManager* cach
   std::vector<OrtValue> fetches;
   std::unordered_map<size_t, IExecutor::CustomAllocator> fetch_allocators;
 
-  fetches.reserve(num_outputs_);
-  for (int i = 0; i < num_outputs_; ++i) {
+  fetches.reserve(info_.num_outputs);
+  for (int i = 0; i < info_.num_outputs; ++i) {
     fetches.push_back(outputs_[i].second);
 
     if (outputs_[i].first == AllocationType::Delayed) {
@@ -251,15 +323,9 @@ Status IfImpl::Execute(FeedsFetchesManager* ffm, const FeedsFetchesManager* cach
     }
   }
 
-  if (cached_ffm) {
-    status = utils::ExecuteGraphWithCachedInfo(session_state_, *cached_ffm, feeds, fetches, fetch_allocators,
-                                               /*sequential_execution*/ true, context_.GetTerminateFlag(),
-                                               context_.Logger());
-  } else {
-    status = utils::ExecuteGraph(session_state_, *ffm, feeds, fetches, fetch_allocators,
-                                 /*sequential_execution*/ true, context_.GetTerminateFlag(), context_.Logger(),
-                                 /*cache_copy_info*/ true);
-  }
+  status = utils::ExecuteSubgraph(session_state_, ffm, feeds, fetches, fetch_allocators,
+                                  /*sequential_execution*/ true, context_.GetTerminateFlag(),
+                                  context_.Logger());
 
   ORT_RETURN_IF_ERROR(status);
 

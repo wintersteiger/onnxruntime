@@ -8,9 +8,11 @@
 #include "core/common/common.h"
 #include "core/framework/feeds_fetches_manager.h"
 #include "core/framework/op_kernel.h"
+#include "core/providers/cpu/controlflow/utils.h"
 
 namespace onnxruntime {
-class Loop final : public OpKernel {
+
+class Loop final : public OpKernel, public controlflow::detail::IControlFlowNode {
  public:
   Loop(const OpKernelInfo& info) : OpKernel(info) {
     // make sure the attribute was present even though we don't need it here.
@@ -24,8 +26,14 @@ class Loop final : public OpKernel {
 
   Status Compute(OpKernelContext* ctx) const override;
 
+  common::Status CreateFeedsFetchesManager(const SessionState& session_state,
+                                           const std::string& attribute_name,
+                                           const SessionState& subgraph_session_state) override;
+
+  struct Info;
+
  private:
-  mutable std::unique_ptr<FeedsFetchesManager> cached_feeds_fetches_manager_;
-  mutable std::once_flag manager_init_flag_;
+  std::unique_ptr<Info> info_;
+  std::unique_ptr<FeedsFetchesManager> feeds_fetches_manager_;
 };
 }  // namespace onnxruntime

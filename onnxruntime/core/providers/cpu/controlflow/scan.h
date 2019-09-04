@@ -8,14 +8,21 @@
 #include "core/common/common.h"
 #include "core/framework/op_kernel.h"
 #include "core/framework/feeds_fetches_manager.h"
+#include "core/providers/cpu/controlflow/utils.h"
 
 namespace onnxruntime {
 template <int OpSet>
-class Scan final : public OpKernel {
+class Scan final : public OpKernel, public controlflow::detail::IControlFlowNode {
  public:
   Scan(const OpKernelInfo& info);
 
   Status Compute(OpKernelContext* ctx) const override;
+
+  common::Status CreateFeedsFetchesManager(const SessionState& session_state,
+                                           const std::string& attribute_name,
+                                           const SessionState& subgraph_session_state) override {
+    ORT_THROW(ORT_NOT_IMPLEMENTED);
+  }
 
  private:
   int64_t num_scan_inputs_;

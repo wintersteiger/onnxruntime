@@ -8,11 +8,12 @@
 #include "core/common/common.h"
 #include "core/framework/feeds_fetches_manager.h"
 #include "core/framework/op_kernel.h"
+#include "core/providers/cpu/controlflow/utils.h"
 
 namespace onnxruntime {
 class SessionState;
 
-class If final : public OpKernel {
+class If final : public OpKernel, public controlflow::detail::IControlFlowNode {
  public:
   If(const OpKernelInfo& info) : OpKernel(info) {
     // make sure the required attributes are present even though we don't need it here.
@@ -27,10 +28,19 @@ class If final : public OpKernel {
 
   Status Compute(OpKernelContext* ctx) const override;
 
+  common::Status CreateFeedsFetchesManager(const SessionState& session_state,
+                                           const std::string& attribute_name,
+                                           const SessionState& subgraph_session_state) override;
+
+  struct Info;
+  ~If();
+
+  ORT_DISALLOW_COPY_ASSIGNMENT_AND_MOVE(If);
+
  private:
-  mutable std::unique_ptr<FeedsFetchesManager> cached_then_feeds_fetches_manager_;
-  mutable std::unique_ptr<FeedsFetchesManager> cached_else_feeds_fetches_manager_;
-  mutable std::once_flag then_manager_init_flag_;
-  mutable std::once_flag else_manager_init_flag_;
+  std::unique_ptr<Info> then_info_;
+  std::unique_ptr<Info> else_info_;
+  std::unique_ptr<FeedsFetchesManager> then_feeds_fetches_manager_;
+  std::unique_ptr<FeedsFetchesManager> else_feeds_fetches_manager_;
 };
 }  // namespace onnxruntime

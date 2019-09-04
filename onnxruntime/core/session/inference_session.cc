@@ -398,8 +398,9 @@ common::Status InferenceSession::CreateSubgraphSessionState(Graph& graph, Sessio
       Graph* subgraph = entry.second;
       ORT_ENFORCE(subgraph, "Main Graph instance should have populated all subgraphs when being resolved.");
 
-      auto subgraph_session_state =
-          std::make_unique<SessionState>(execution_providers_, session_state.GetEnableMemoryPattern(), session_state.GetThreadPool());
+      auto subgraph_session_state = std::make_unique<SessionState>(execution_providers_,
+                                                                   session_state.GetEnableMemoryPattern(),
+                                                                   session_state.GetThreadPool());
       subgraph_session_state->SetProfiler(session_profiler_);
       subgraph_session_state->SetLogger(*session_logger_);
       // Pass data transfer manager to subgraph.
@@ -410,8 +411,10 @@ common::Status InferenceSession::CreateSubgraphSessionState(Graph& graph, Sessio
       // recurse
       ORT_RETURN_IF_ERROR(CreateSubgraphSessionState(*subgraph, *subgraph_session_state));
 
-      // add FeedsFetchesManager for subgraph execution and determine which if any feeds and fetches need copies
-      TODO;
+      // TODO: Would be cleaner to have control flow nodes implement an interface for this, and to do a
+      const auto& op_type = node.OpType();
+      if (op_type == "Scan") {
+      }
 
       // add the subgraph SessionState instance to the parent graph SessionState so it can be retrieved
       // by Compute() via OpKernelContextInternal.
@@ -707,9 +710,8 @@ Status InferenceSession::Run(const RunOptions& run_options, const std::vector<st
     ORT_RETURN_IF_ERROR(ValidateInputs(feed_names, feeds));
     ORT_RETURN_IF_ERROR(ValidateOutputs(output_names, p_fetches));
 
-    FeedsFetchesInfo info(feed_names, output_names);
-    ORT_RETURN_IF_ERROR(info.SetMLValueIdxs(session_state_.GetOrtValueNameIdxMap()));
-    FeedsFetchesManager feeds_fetches_manager{std::move(info)};
+    FeedsFetchesInfo info(feed_names, output_names, session_state_.GetOrtValueNameIdxMap());
+    FeedsFetchesManager feeds_fetches_manager{std::move(info), session_state_};
 
     if (!run_options.run_tag.empty()) {
       LOGS(*session_logger_, INFO) << "Running with tag: " << run_options.run_tag;
@@ -732,9 +734,8 @@ Status InferenceSession::Run(const RunOptions& run_options, const std::vector<st
 
     // execute the graph
     ORT_CHECK_AND_SET_RETVAL(
-        utils::ExecuteGraph(session_state_, feeds_fetches_manager, feeds, *p_fetches, {},
-                            session_options_.enable_sequential_execution, run_options.terminate, run_logger,
-                            false));
+        utils::ExecuteGraph(session_state_, feeds_fetches_manager, feeds, *p_fetches,
+                            session_options_.enable_sequential_execution, run_options.terminate, run_logger));
 
   } catch (const std::exception& e) {
     retval = Status(common::ONNXRUNTIME, common::FAIL, e.what());

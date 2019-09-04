@@ -99,7 +99,7 @@ Status AllocateOutput(OpKernelContextInternal& context, const GraphViewer& subgr
 Status CreateFeedsFetchesManager(const GraphViewer& subgraph, int num_variadic_inputs,
                                  std::unordered_map<std::string, const OrtValue*>& implicit_inputs,
                                  std::vector<std::string>& subgraph_output_names,
-                                 const OrtValueNameIdxMap& ort_value_name_idx_map,
+                                 const SessionState& session_state,
                                  std::unique_ptr<FeedsFetchesManager>& ffm) {
   auto* graph_inputs = &subgraph.GetInputsIncludingInitializers();
   if (static_cast<size_t>(num_variadic_inputs) < graph_inputs->size()) {
@@ -125,7 +125,7 @@ Status CreateFeedsFetchesManager(const GraphViewer& subgraph, int num_variadic_i
     feed_names.push_back(entry.first);
   }
 
-  auto status = FeedsFetchesManager::Create(feed_names, subgraph_output_names, ort_value_name_idx_map, ffm);
+  auto status = FeedsFetchesManager::Create(feed_names, subgraph_output_names, session_state, ffm);
 
   return status;
 }
@@ -200,17 +200,9 @@ Status IterateSequence(OpKernelContextInternal& context, const SessionState& ses
     }
 
     // Create Executor and run graph.
-    if (cached_ffm) {
-      status = utils::ExecuteGraphWithCachedInfo(session_state, *cached_ffm, feeds, fetches, fetch_allocators,
-                                                 /*sequential_execution*/ true, context.GetTerminateFlag(),
-                                                 context.Logger());
-    } else {
-      status = utils::ExecuteGraph(session_state, *ffm, feeds, fetches, fetch_allocators,
-                                   /*sequential_execution*/ true, context.GetTerminateFlag(), context.Logger(),
-                                   /*cache_copy_info*/ true);
-      // we can now use the cached info
-      cached_ffm = ffm;
-    }
+    status = utils::ExecuteSubgraph(session_state, *cached_ffm, feeds, fetches, fetch_allocators,
+                                    /*sequential_execution*/ true, context.GetTerminateFlag(),
+                                    context.Logger());
 
     ORT_RETURN_IF_ERROR(status);
 
