@@ -14,7 +14,7 @@ namespace onnxruntime {
 class Graph;
 
 namespace controlflow {
-class IControlFlowNode {
+class IControlFlowKernel {
  public:
   // helper to create the copy info upfront for the feeds and fetches used in each subgraph execution
   // TODO: Make this a formal interface that control flow nodes inherit from so we can formally check we're calling
@@ -29,10 +29,10 @@ namespace detail {
 const OrtAllocatorInfo& FindAllocatorInfoForValue(const SessionState& session_state,
                                                   const std::string& name);
 
-common::Status FindDevicesForFeeds(const SessionState& session_state,
-                                   std::vector<std::string> feed_names,
-                                   std::vector<OrtDevice>& feed_locations,
-                                   size_t start_at = 0);
+common::Status FindDevicesForValues(const SessionState& session_state,
+                                    const std::vector<std::string>& names,
+                                    std::vector<OrtDevice>& devices,
+                                    size_t start_at = 0);
 
 // helper to execute the subgraph by calling the Execute method of the provided implementation class with
 // with the cached or newly created FeedsFetchesManager

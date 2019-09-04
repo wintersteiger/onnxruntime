@@ -12,7 +12,7 @@
 
 namespace onnxruntime {
 template <int OpSet>
-class Scan final : public OpKernel, public controlflow::IControlFlowNode {
+class Scan final : public OpKernel, public controlflow::IControlFlowKernel {
  public:
   Scan(const OpKernelInfo& info);
 
@@ -20,9 +20,10 @@ class Scan final : public OpKernel, public controlflow::IControlFlowNode {
 
   common::Status CreateFeedsFetchesManager(const SessionState& session_state,
                                            const std::string& attribute_name,
-                                           const SessionState& subgraph_session_state) override {
-    ORT_THROW(ORT_NOT_IMPLEMENTED);
-  }
+                                           const SessionState& subgraph_session_state) override;
+
+  struct Info;
+  ~Scan();
 
  private:
   int64_t num_scan_inputs_;
@@ -31,7 +32,7 @@ class Scan final : public OpKernel, public controlflow::IControlFlowNode {
   std::vector<int64_t> input_axes_;
   std::vector<int64_t> output_axes_;
 
-  mutable std::unique_ptr<FeedsFetchesManager> cached_feeds_fetches_manager_;
-  mutable std::once_flag manager_init_flag_;
+  std::unique_ptr<Info> info_;
+  std::unique_ptr<FeedsFetchesManager> feeds_fetches_manager_;
 };
 }  // namespace onnxruntime

@@ -89,14 +89,11 @@ ONNX_CPU_OPERATOR_KERNEL(Loop,
                          Loop);
 
 struct Loop::Info {
-  Loop::Info(const GraphViewer& subgraph_in, const onnxruntime::Node& node)
+  Loop::Info(const onnxruntime::Node& node, const GraphViewer& subgraph_in)
       : subgraph{subgraph_in} {
-    // 'M' input to Loop is replaced by iter_num when calling the subgraph. 'cond' is passed through, so
-    // the number of explicit subgraph inputs == the number of Loop inputs
-
     num_loop_carried_vars = static_cast<int>(node.InputDefs().size()) - 2;  // skip 'M' and 'cond'
     num_implicit_inputs = static_cast<int>(node.ImplicitInputDefs().size());
-    num_subgraph_inputs = num_loop_carried_vars + 2;  // iter_num, cond, loop carried vars
+    num_subgraph_inputs = 2 + num_loop_carried_vars;  // iter_num, cond, loop carried vars
     num_outputs = static_cast<int>(node.OutputDefs().size());
 
     auto& subgraph_inputs = subgraph.GetInputs();
@@ -113,7 +110,7 @@ struct Loop::Info {
     }
 
     // check num outputs are correct. the 'cond' output from the subgraph is not a Loop output, so diff is 1
-    auto num_subgraph_outputs = subgraph_outputs.size();
+    num_subgraph_outputs = static_cast<int>(subgraph_outputs.size());
     if (num_subgraph_outputs - 1 != static_cast<size_t>(num_outputs)) {
       auto status = ORT_MAKE_STATUS(ONNXRUNTIME, FAIL, "'Loop' node has ", num_outputs,
                                     " outputs so the subgraph requires ", num_outputs + 1,
@@ -128,8 +125,8 @@ struct Loop::Info {
 
     // save list of subgraph output names in their provided order to use when fetching the results
     // from each subgraph execution. the Loop outputs will match this order.
-    subgraph_output_names.reserve(num_outputs);
-    for (size_t i = 0; i < num_outputs; ++i) {
+    subgraph_output_names.reserve(num_subgraph_outputs);
+    for (size_t i = 0; i < num_subgraph_outputs; ++i) {
       auto& output = subgraph_outputs[i];
       subgraph_output_names.push_back(output->Name());
     }
@@ -139,8 +136,10 @@ struct Loop::Info {
 
   int num_loop_carried_vars;
   int num_implicit_inputs;
-  int num_subgraph_inputs;
   int num_outputs;
+
+  int num_subgraph_inputs;
+  int num_subgraph_outputs;
 
   std::vector<std::string> subgraph_input_names;
   std::vector<std::string> subgraph_output_names;
@@ -183,53 +182,75 @@ class LoopImpl {
   std::vector<std::vector<OrtValue>> loop_output_tensors_;
 };
 
+Loop::Loop(const OpKernelInfo& info) : OpKernel(info) {
+  // make sure the attribute was present even though we don't need it here.
+  // The GraphProto is loaded as a Graph instance by main Graph::Resolve,
+  // and a SessionState instance for executing the subgraph is created by InferenceSession.
+  // This is available via Info().GetSubgraphSessionState("attribute_name") when Compute is called.
+  ONNX_NAMESPACE::GraphProto proto;
+  ORT_ENFORCE(info.GetAttr<ONNX_NAMESPACE::GraphProto>("body", &proto).IsOK());
+  ORT_IGNORE_RETURN_VALUE(proto);
+}
+
+Loop::~Loop() = default;
+
 common::Status Loop::CreateFeedsFetchesManager(const SessionState& session_state,
                                                const std::string& attribute_name,
                                                const SessionState& subgraph_session_state) {
   const auto& node = Node();
   ORT_ENFORCE(info_ == nullptr);
-  info_ = std::make_unique<Loop::Info>(*subgraph_session_state.GetGraphViewer(), node);
+  info_ = std::make_unique<Loop::Info>(node, *subgraph_session_state.GetGraphViewer());
 
+  // the Loop inputs are matched to subgraph feeds based on ordering. we need the names of the Loop inputs
+  // to determine what device they are available on so first create a list using those value
   std::vector<std::string> feed_names;
   feed_names.reserve(info_->num_subgraph_inputs + info_->num_implicit_inputs);
 
-  std::copy(info_->subgraph_input_names.cbegin(),
-            info_->subgraph_input_names.cend(),
-            std::back_inserter(feed_names));
+  // iter_num and cond subgraph inputs
+  feed_names.push_back(info_->subgraph_input_names[0]);
+  feed_names.push_back(info_->subgraph_input_names[1]);
+
+  // add the original names for the loop carried vars
+  const auto& loop_inputs = node.InputDefs();
+  for (int i = 0; i < info_->num_loop_carried_vars; ++i) {
+    // + 2 to skip 'M' and 'cond' Loop inputs
+    feed_names.push_back(loop_inputs[i + 2]->Name());
+  }
 
   for (auto& entry : node.ImplicitInputDefs()) {
     feed_names.push_back(entry->Name());
   }
 
+  // iter_num and cond are created on CPU via MakeScalarMLValue so skip those (they will correctly default to CPU)
+  // and process all the OrtValue's coming from external sources.
+  // use the SessionState from the control flow node for this lookup.
+  std::vector<OrtDevice> feed_locations;
+  size_t start_at = 2;
+  auto status = controlflow::detail::FindDevicesForValues(session_state, feed_names, feed_locations, start_at);
+  ORT_RETURN_IF_ERROR(status);
+
+  // now update the feed names to use the subgraph input name for the loop carried vars
+  for (int i = 0; i < info_->num_loop_carried_vars; ++i) {
+    // +2 for both to skip the iter_num and cond values
+    feed_names[i + 2] = info_->subgraph_input_names[i + 2];
+  }
+
   std::unique_ptr<FeedsFetchesManager> ffm;
-  auto status = FeedsFetchesManager::Create(feed_names, info_->subgraph_output_names, subgraph_session_state, ffm);
+  status = FeedsFetchesManager::Create(feed_names, info_->subgraph_output_names, subgraph_session_state, ffm);
   ORT_RETURN_IF_ERROR(status);
 
   status = utils::InitializeFeedFetchCopyInfo(subgraph_session_state, *ffm);
   ORT_RETURN_IF_ERROR(status);
 
-  // default to CPU for all
-  std::vector<OrtDevice> feed_locations(feed_names.size());
-
-  // iter num and condition are created on CPU via MakeScalarMLValue so skip those and just process all the
-  // OrtValue's coming from external sources. use the SessionState from the control flow node for this lookup.
-  size_t start_at = 2;
-  controlflow::detail::FindDevicesForFeeds(session_state, feed_names, feed_locations, start_at);
-
-  // we don't provide pre-allocated fetches for Loop subgraph execution, so can use nullptr for all the fetch locations
-  std::vector<const OrtAllocatorInfo*> fetch_locations(info_->num_outputs, nullptr);
-  //fetch_locations.reserve(info_->num_outputs);
-
-  //const auto& fetch_copy_info = ffm->GetFetchesDeviceCopyInfo();
-
-  //for (int i = 0, end = info_->num_outputs; i < end; ++i) {
-  //  fetch_locations.push_back(fetch_copy_info[i].source_device);
-  //}
+  // we don't provide pre-allocated fetches for Loop subgraph execution
+  // use nullptr for all the fetch locations to represent that
+  std::vector<const OrtAllocatorInfo*> fetch_locations(info_->num_subgraph_outputs, nullptr);
 
   status = utils::FinalizeFeedFetchCopyInfo(subgraph_session_state, *ffm, feed_locations, fetch_locations);
 
-  if (status.IsOK())
+  if (status.IsOK()) {
     feeds_fetches_manager_ = std::move(ffm);
+  }
 
   return status;
 }

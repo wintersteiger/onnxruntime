@@ -62,15 +62,8 @@ struct If::Info {
     num_implicit_inputs = static_cast<int>(node.ImplicitInputDefs().size());
     num_outputs = static_cast<int>(node.OutputDefs().size());
 
-    //auto& subgraph_inputs = subgraph.GetInputs();
-    //auto num_subgraph_inputs = subgraph_inputs.size();
     auto& subgraph_outputs = subgraph.GetOutputs();
     auto num_subgraph_outputs = subgraph_outputs.size();
-
-    //subgraph_input_names.reserve(num_subgraph_inputs);
-    //for (int i = 0; i < num_subgraph_inputs; ++i) {
-    //  subgraph_input_names.push_back(subgraph_inputs[i]->Name());
-    //}
 
     if (num_subgraph_outputs != static_cast<size_t>(num_outputs)) {
       auto status = ORT_MAKE_STATUS(ONNXRUNTIME, FAIL, "'If' node has ", num_outputs,
@@ -90,7 +83,6 @@ struct If::Info {
   int num_implicit_inputs;
   int num_outputs;
 
-  // std::vector<std::string> subgraph_input_names;
   std::vector<std::string> subgraph_output_names;
 };
 
@@ -124,37 +116,6 @@ class IfImpl {
   // track where the fetches provided to subgraph execution were allocated.
   std::vector<std::pair<AllocationType, OrtValue>> outputs_;
 };
-
-// Status IfImpl::CreateFeedsFetchesManager(std::unique_ptr<FeedsFetchesManager>& ffm) {
-//  // we setup the FeedsFetchesInfo manually here as we need to skip implicit inputs that aren't in this subgraph
-//  FeedsFetchesInfo ffi;
-//
-//  auto num_inputs = implicit_inputs_.size();
-//  ffi.feed_names.reserve(num_inputs);
-//  ffi.feeds_mlvalue_idxs.reserve(num_inputs);
-//
-//  auto& ort_value_name_idx_map = session_state_.GetOrtValueNameIdxMap();
-//
-//  // pass in implicit inputs as feeds.
-//  for (auto& entry : implicit_inputs_) {
-//    // prune to values that are in this subgraph as the implicit inputs cover both 'then' and 'else' subgraphs.
-//    // alternatively we could track implicit inputs on a per-attribute basis in the node, but that
-//    // would make that tracking a bit more complicated.
-//    int idx;
-//    if (ort_value_name_idx_map.GetIdx(entry.first, idx).IsOK()) {
-//      ffi.feed_names.push_back(entry.first);
-//      ffi.feeds_mlvalue_idxs.push_back(idx);
-//    }
-//  }
-//
-//  ffi.output_names = subgraph_output_names_;
-//  ORT_RETURN_IF_ERROR(
-//      FeedsFetchesInfo::MapNamesToMLValueIdxs(ffi.output_names, ort_value_name_idx_map, ffi.fetches_mlvalue_idxs));
-//
-//  ffm = std::make_unique<FeedsFetchesManager>(std::move(ffi));
-//
-//  return Status::OK();
-//}
 
 If::If(const OpKernelInfo& info) : OpKernel(info) {
   // make sure the required attributes are present even though we don't need it here.
@@ -205,7 +166,7 @@ common::Status If::CreateFeedsFetchesManager(const SessionState& session_state,
   // default to CPU for all and override in FindDevicesForFeeds.
   // Use session state for this node and not the subgraph when looking for feed info
   std::vector<OrtDevice> feed_locations(feed_names.size());
-  controlflow::detail::FindDevicesForFeeds(session_state, feed_names, feed_locations);
+  controlflow::detail::FindDevicesForValues(session_state, feed_names, feed_locations);
 
   // init to nullptr
   std::vector<const OrtAllocatorInfo*> fetch_locations;
@@ -229,6 +190,9 @@ common::Status If::CreateFeedsFetchesManager(const SessionState& session_state,
   return status;
 }
 Status If::Compute(OpKernelContext* ctx) const {
+  ORT_ENFORCE(then_feeds_fetches_manager_ && else_feeds_fetches_manager_,
+              "CreateFeedsFetchesManager must be called prior to execution of graph.");
+
   auto ctx_internal = static_cast<OpKernelContextInternal*>(ctx);
 
   auto condition = *ctx->Input<Tensor>(0)->Data<bool>();
@@ -243,7 +207,6 @@ Status If::Compute(OpKernelContext* ctx) const {
   auto status = impl.Initialize();
   ORT_RETURN_IF_ERROR(status);
 
-  // create FeedsFetchesManager if needed and call IfImpl::Execute
   if (condition) {
     status = impl.Execute(*then_feeds_fetches_manager_);
   } else {

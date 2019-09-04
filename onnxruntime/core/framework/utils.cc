@@ -102,6 +102,8 @@ static Status CopyMLValue(const DataTransferManager& data_transfer_mgr,
     return Status::OK();
   }
 
+  // This shouldn't be necessary. Edge case may be an unused input that has a mismatch between source and target
+  // but as it's unused we have no allocator info (and don't want to allocate it as it's unused). Uncomment if needed.
   //  if (copy_info.allocation_provider == nullptr) {
   //  target_mlvalue = source_mlvalue;
   //  return Status::OK();
@@ -142,6 +144,11 @@ static common::Status CalculateStaticCopyInfoForFeed(const SessionState& session
   std::vector<SessionState::NodeInfo> node_info_vec;
   ORT_RETURN_IF_ERROR(session_state.GetInputNodeInfo(input_name, node_info_vec));
   const auto& node_info = node_info_vec.front();  // all consumers of a feed have the same device so first entry is fine
+
+  if (node_info.p_node == nullptr) {
+    // ignore dummy entry for an input that we didn't find a use of in the graph.
+    return Status::OK();
+  }
 
   copy_info.target_device = *node_info.device;
 
@@ -338,7 +345,7 @@ static common::Status CopyOutputsAcrossDevices(const SessionState& session_state
                                                std::vector<OrtValue>& user_fetches,
                                                const std::vector<MLValueCopyInfo>& copy_info) {
   auto num_outputs = fetches.size();
-  ORT_ENFORCE(copy_info.size() == num_outputs);  //TEMPORARY validation
+  user_fetches.resize(num_outputs);
 
   const auto& data_transfer_mgr = session_state.GetDataTransferMgr();
 

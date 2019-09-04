@@ -49,7 +49,7 @@ common::Status FinalizeFeedFetchCopyInfo(const SessionState& session_state,
                                          const std::vector<const OrtAllocatorInfo*>& fetch_alloc_info);
 
 //common::Status CreateSubraphFeedsFetchesManager(const SessionState& session_state, const std::string& attribute_name, const Graph& subgraph,
-//                                                IControlFlowNode& node) {}
+//                                                IControlFlowKernel& node) {}
 
 common::Status ExecuteGraph(const SessionState& session_state, FeedsFetchesManager& feeds_fetches_manager,
                             const std::vector<OrtValue>& feeds, std::vector<OrtValue>& fetches,

@@ -455,7 +455,7 @@ common::Status InferenceSession::InitializeSubgraphSessions(Graph& graph, Sessio
       // setup all the info for handling the feeds and fetches used in subraph execution
       auto* p_op_kernel = session_state.GetMutableKernel(node.Index());
       ORT_ENFORCE(p_op_kernel);
-      auto& control_flow_kernel = dynamic_cast<controlflow::IControlFlowNode&>(*p_op_kernel);
+      auto& control_flow_kernel = dynamic_cast<controlflow::IControlFlowKernel&>(*p_op_kernel);
       ORT_RETURN_IF_ERROR(control_flow_kernel.CreateFeedsFetchesManager(session_state, name, *subgraph_session_state));
 
       // recurse

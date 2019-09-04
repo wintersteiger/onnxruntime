@@ -12,17 +12,9 @@
 
 namespace onnxruntime {
 
-class Loop final : public OpKernel, public controlflow::IControlFlowNode {
+class Loop final : public OpKernel, public controlflow::IControlFlowKernel {
  public:
-  Loop(const OpKernelInfo& info) : OpKernel(info) {
-    // make sure the attribute was present even though we don't need it here.
-    // The GraphProto is loaded as a Graph instance by main Graph::Resolve,
-    // and a SessionState instance for executing the subgraph is created by InferenceSession.
-    // This is available via Info().GetSubgraphSessionState("attribute_name") when Compute is called.
-    ONNX_NAMESPACE::GraphProto proto;
-    ORT_ENFORCE(info.GetAttr<ONNX_NAMESPACE::GraphProto>("body", &proto).IsOK());
-    ORT_IGNORE_RETURN_VALUE(proto);
-  }
+  Loop(const OpKernelInfo& info);
 
   Status Compute(OpKernelContext* ctx) const override;
 
@@ -31,6 +23,7 @@ class Loop final : public OpKernel, public controlflow::IControlFlowNode {
                                            const SessionState& subgraph_session_state) override;
 
   struct Info;
+  ~Loop();
 
  private:
   std::unique_ptr<Info> info_;

@@ -277,10 +277,10 @@ common::Status SaveInputOutputNamesToNodeMapping(const onnxruntime::Graph& graph
               }
 
               // ??? Why are we checking if an input to a node is also in the graph output
-              if (IsArgNameInInputsOutputs(arg.Name(), graph_outputs)) {
-                session_state.AddOutputNameToNodeInfoMapping(arg.Name(), node_info);
-                return Status::OK();
-              }
+              //if (IsArgNameInInputsOutputs(arg.Name(), graph_outputs)) {
+              //  session_state.AddOutputNameToNodeInfoMapping(arg.Name(), node_info);
+              //  return Status::OK();
+              //}
 
               return Status::OK();
             }));
