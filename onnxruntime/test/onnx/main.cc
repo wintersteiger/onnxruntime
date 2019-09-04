@@ -326,33 +326,30 @@ int real_main(int argc, char* argv[], Ort::Env& env) {
       stat += per_case_stat;
     });
 #else
-    do {
-      std::vector<ITestCase*> tests;
-      LoadTests(data_dirs, whitelisted_test_cases, per_sample_tolerance, relative_per_sample_tolerance, [&tests](ITestCase* l) { tests.push_back(l); });
-      if (enable_cuda) {
-        for (auto it = tests.begin(); it != tests.end();) {
-          auto iter = cuda_flaky_tests.find((*it)->GetTestCaseName());
-          if (iter != cuda_flaky_tests.end()) {
-            delete *it;
-            it = tests.erase(it);
-          } else {
-            ++it;
-          }
+    std::vector<ITestCase*> tests;
+    LoadTests(data_dirs, whitelisted_test_cases, per_sample_tolerance, relative_per_sample_tolerance, [&tests](ITestCase* l) { tests.push_back(l); });
+    if (enable_cuda) {
+      for (auto it = tests.begin(); it != tests.end();) {
+        auto iter = cuda_flaky_tests.find((*it)->GetTestCaseName());
+        if (iter != cuda_flaky_tests.end()) {
+          delete *it;
+          it = tests.erase(it);
+        } else {
+          ++it;
         }
       }
+    }
 
-      TestEnv args(tests, stat, env, sf);
-      Status st = RunTests(args, p_models, concurrent_session_runs, static_cast<size_t>(repeat_count),
-                           GetDefaultThreadPool(Env::Default()));
-      if (!st.IsOK()) {
-        fprintf(stderr, "%s\n", st.ErrorMessage().c_str());
-        return -1;
-      }
-      for (ITestCase* l : tests) {
-        delete l;
-      }
-    } while (true);
-
+    TestEnv args(tests, stat, env, sf);
+    Status st = RunTests(args, p_models, concurrent_session_runs, static_cast<size_t>(repeat_count),
+                         GetDefaultThreadPool(Env::Default()));
+    if (!st.IsOK()) {
+      fprintf(stderr, "%s\n", st.ErrorMessage().c_str());
+      return -1;
+    }
+    for (ITestCase* l : tests) {
+      delete l;
+    }
 #endif
     std::string res = stat.ToString();
     fwrite(res.c_str(), 1, res.size(), stdout);

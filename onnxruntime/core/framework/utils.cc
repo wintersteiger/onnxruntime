@@ -109,7 +109,6 @@ static Status CopyMLValue(const DataTransferManager& data_transfer_mgr,
   //  return Status::OK();
   //}
 
-  // validate assumption that non-tensors are in fact CPU only
   assert(source_mlvalue.IsTensor());
 
   auto& source_tensor = source_mlvalue.Get<Tensor>();
@@ -279,7 +278,7 @@ static common::Status FinalizeFeedFetchCopyInfo(const SessionState& session_stat
     return Status::OK();
 
   auto num_inputs = feeds.size();
-  auto num_outputs = fetches.size();
+  auto num_outputs = feeds_fetches_manager.GetFeedsFetchesInfo().output_names.size();
 
   std::vector<OrtDevice> feed_locations(num_inputs);
   std::vector<const OrtAllocatorInfo*> fetch_alloc_info(num_outputs, nullptr);

@@ -23,7 +23,7 @@ struct RunOptions {
   bool include_dim_values_in_subgraph = true;
   bool mixed_execution_providers = false;
 };
-}  // namespace
+}
 
 static const ONNX_NAMESPACE::GraphProto CreateSubgraph(bool then_branch, const RunOptions& options);
 

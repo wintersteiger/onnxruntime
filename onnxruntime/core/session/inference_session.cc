@@ -407,11 +407,6 @@ common::Status InferenceSession::CreateSubgraphSessionState(Graph& graph, Sessio
       // recurse
       ORT_RETURN_IF_ERROR(CreateSubgraphSessionState(*subgraph, *subgraph_session_state));
 
-      // TODO: Would be cleaner to have control flow nodes implement an interface for this, and to do a
-      const auto& op_type = node.OpType();
-      if (op_type == "Scan") {
-      }
-
       // add the subgraph SessionState instance to the parent graph SessionState so it can be retrieved
       // by Compute() via OpKernelContextInternal.
       session_state.AddSubgraphSessionState(node.Index(), name, std::move(subgraph_session_state));
