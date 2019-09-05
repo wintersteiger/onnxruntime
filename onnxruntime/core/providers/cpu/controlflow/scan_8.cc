@@ -85,7 +85,7 @@ ONNX_OPERATOR_SET_SCHEMA(
 
 template <>
 struct Scan<8>::Info : public scan::detail::Info {
-  Scan<8>::Info(const onnxruntime::Node& node, const GraphViewer& subgraph_in, int num_scan_inputs_in)
+  Info(const onnxruntime::Node& node, const GraphViewer& subgraph_in, int num_scan_inputs_in)
       : scan::detail::Info(node, subgraph_in, num_scan_inputs_in, /* is_v8 */ true) {}
 };
 
@@ -151,6 +151,7 @@ Status Scan<8>::SetupSubgraphExecutionInfo(const SessionState& session_state,
                                            const std::string& attribute_name,
                                            const SessionState& subgraph_session_state) {
   ORT_ENFORCE(info_ == nullptr, "SetupSubgraphExecutionInfo should only be called once for each subgraph.");
+  ORT_UNUSED_PARAMETER(attribute_name);
 
   const auto& node = Node();
   info_ = std::make_unique<Scan<8>::Info>(node, *subgraph_session_state.GetGraphViewer(),

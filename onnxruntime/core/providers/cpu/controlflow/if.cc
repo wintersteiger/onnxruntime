@@ -54,7 +54,7 @@ ONNX_CPU_OPERATOR_KERNEL(If,
                          If);
 
 struct If::Info {
-  If::Info(const onnxruntime::Node& node, const GraphViewer& subgraph_in) : subgraph{subgraph_in} {
+  Info(const onnxruntime::Node& node, const GraphViewer& subgraph_in) : subgraph{subgraph_in} {
     num_implicit_inputs = static_cast<int>(node.ImplicitInputDefs().size());
     num_outputs = static_cast<int>(node.OutputDefs().size());
 

@@ -88,7 +88,7 @@ ONNX_CPU_OPERATOR_KERNEL(Loop,
                          Loop);
 
 struct Loop::Info {
-  Loop::Info(const onnxruntime::Node& node, const GraphViewer& subgraph_in)
+  Info(const onnxruntime::Node& node, const GraphViewer& subgraph_in)
       : subgraph{subgraph_in} {
     num_loop_carried_vars = static_cast<int>(node.InputDefs().size()) - 2;  // skip 'M' and 'cond'
     num_implicit_inputs = static_cast<int>(node.ImplicitInputDefs().size());
@@ -107,7 +107,7 @@ struct Loop::Info {
 
     // check num outputs are correct. the 'cond' output from the subgraph is not a Loop output, so diff is 1
     num_subgraph_outputs = static_cast<int>(subgraph_outputs.size());
-    ORT_ENFORCE(num_subgraph_outputs - 1 == static_cast<size_t>(num_outputs),
+    ORT_ENFORCE(num_subgraph_outputs - 1 == num_outputs,
                 "'Loop' node has ", num_outputs, " outputs so the subgraph requires ", num_outputs + 1,
                 " but has ", num_subgraph_outputs);
 
@@ -119,7 +119,7 @@ struct Loop::Info {
     // save list of subgraph output names in their provided order to use when fetching the results
     // from each subgraph execution. the Loop outputs will match this order.
     subgraph_output_names.reserve(num_subgraph_outputs);
-    for (size_t i = 0; i < num_subgraph_outputs; ++i) {
+    for (int i = 0; i < num_subgraph_outputs; ++i) {
       auto& output = subgraph_outputs[i];
       subgraph_output_names.push_back(output->Name());
     }
@@ -192,6 +192,7 @@ common::Status Loop::SetupSubgraphExecutionInfo(const SessionState& session_stat
                                                 const std::string& attribute_name,
                                                 const SessionState& subgraph_session_state) {
   ORT_ENFORCE(info_ == nullptr, "SetupSubgraphExecutionInfo should only be called once for each subgraph.");
+  ORT_UNUSED_PARAMETER(attribute_name);
 
   const auto& node = Node();
   info_ = std::make_unique<Loop::Info>(node, *subgraph_session_state.GetGraphViewer());
