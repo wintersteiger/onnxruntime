@@ -102,21 +102,15 @@ struct Loop::Info {
     // we know how many inputs we are going to call the subgraph with based on the Loop inputs,
     // and that value is in num_subgraph_inputs.
     // validate that the subgraph has that many inputs.
-    if (static_cast<size_t>(num_subgraph_inputs) != subgraph_inputs.size()) {
-      auto status = ORT_MAKE_STATUS(ONNXRUNTIME, FAIL,
-                                    "Graph in 'body' attribute of Loop should have ",
-                                    num_subgraph_inputs, " inputs. Found:", subgraph_inputs.size());
-      ORT_THROW(status);
-    }
+    ORT_ENFORCE(static_cast<size_t>(num_subgraph_inputs) == subgraph_inputs.size(),
+                "Graph in 'body' attribute of Loop should have ", num_subgraph_inputs, " inputs. Found:",
+                subgraph_inputs.size());
 
     // check num outputs are correct. the 'cond' output from the subgraph is not a Loop output, so diff is 1
     num_subgraph_outputs = static_cast<int>(subgraph_outputs.size());
-    if (num_subgraph_outputs - 1 != static_cast<size_t>(num_outputs)) {
-      auto status = ORT_MAKE_STATUS(ONNXRUNTIME, FAIL, "'Loop' node has ", num_outputs,
-                                    " outputs so the subgraph requires ", num_outputs + 1,
-                                    " but has ", num_subgraph_outputs);
-      ORT_THROW(status);
-    }
+    ORT_ENFORCE(num_subgraph_outputs - 1 == static_cast<size_t>(num_outputs),
+                "'Loop' node has ", num_outputs, " outputs so the subgraph requires ", num_outputs + 1,
+                " but has ", num_subgraph_outputs);
 
     subgraph_input_names.reserve(num_subgraph_inputs);
     for (int i = 0; i < num_subgraph_inputs; ++i) {
@@ -192,25 +186,28 @@ Loop::Loop(const OpKernelInfo& info) : OpKernel(info) {
   ORT_IGNORE_RETURN_VALUE(proto);
 }
 
+// we need this to be in the .cc so 'unique_ptr<Info> info_' can be handled
 Loop::~Loop() = default;
 
-common::Status Loop::CreateFeedsFetchesManager(const SessionState& session_state,
-                                               const std::string& attribute_name,
-                                               const SessionState& subgraph_session_state) {
+common::Status Loop::SetupSubgraphExecutionInfo(const SessionState& session_state,
+                                                const std::string& attribute_name,
+                                                const SessionState& subgraph_session_state) {
+  ORT_ENFORCE(info_ == nullptr, "SetupSubgraphExecutionInfo should only be called once for each subgraph.");
+
   const auto& node = Node();
-  ORT_ENFORCE(info_ == nullptr);
   info_ = std::make_unique<Loop::Info>(node, *subgraph_session_state.GetGraphViewer());
 
-  // the Loop inputs are matched to subgraph feeds based on ordering. we need the names of the Loop inputs
-  // to determine what device they are available on so first create a list using those value
+  // the Loop inputs are matched to subgraph feeds based on order.
+  // we first need the names of the Loop inputs to determine what device they are available on
   std::vector<std::string> feed_names;
   feed_names.reserve(info_->num_subgraph_inputs + info_->num_implicit_inputs);
 
-  // iter_num and cond subgraph inputs
+  // iter_num and cond subgraph inputs - created by the LoopImpl::Initialize so the name doesn't matter
+  // and we'll skip them when we call FindDevicesForValues
   feed_names.push_back(info_->subgraph_input_names[0]);
   feed_names.push_back(info_->subgraph_input_names[1]);
 
-  // add the original names for the loop carried vars
+  // add the names for the loop carried vars from the Loop input
   const auto& loop_inputs = node.InputDefs();
   for (int i = 0; i < info_->num_loop_carried_vars; ++i) {
     // + 2 to skip 'M' and 'cond' Loop inputs
@@ -222,37 +219,30 @@ common::Status Loop::CreateFeedsFetchesManager(const SessionState& session_state
   }
 
   // iter_num and cond are created on CPU via MakeScalarMLValue so skip those (they will correctly default to CPU)
-  // and process all the OrtValue's coming from external sources.
   // use the SessionState from the control flow node for this lookup.
   std::vector<OrtDevice> feed_locations;
   size_t start_at = 2;
-  auto status = controlflow::detail::FindDevicesForValues(session_state, feed_names, feed_locations, start_at);
-  ORT_RETURN_IF_ERROR(status);
+  ORT_RETURN_IF_ERROR(controlflow::detail::FindDevicesForValues(session_state, feed_names, feed_locations, start_at));
 
-  // now update the feed names to use the subgraph input name for the loop carried vars
+  // now update the feed names to use the subgraph input names for the loop carried vars so that we can determine
+  // what device the subgraph needs them on
   for (int i = 0; i < info_->num_loop_carried_vars; ++i) {
     // +2 for both to skip the iter_num and cond values
     feed_names[i + 2] = info_->subgraph_input_names[i + 2];
   }
 
   std::unique_ptr<FeedsFetchesManager> ffm;
-  status = FeedsFetchesManager::Create(feed_names, info_->subgraph_output_names, subgraph_session_state, ffm);
-  ORT_RETURN_IF_ERROR(status);
+  ORT_RETURN_IF_ERROR(FeedsFetchesManager::Create(feed_names, info_->subgraph_output_names, subgraph_session_state, ffm));
+  ORT_RETURN_IF_ERROR(utils::InitializeFeedFetchCopyInfo(subgraph_session_state, *ffm));
 
-  status = utils::InitializeFeedFetchCopyInfo(subgraph_session_state, *ffm);
-  ORT_RETURN_IF_ERROR(status);
-
-  // we don't provide pre-allocated fetches for Loop subgraph execution
+  // we don't provide pre-allocated fetches for Loop subgraph execution.
   // use nullptr for all the fetch locations to represent that
   std::vector<const OrtAllocatorInfo*> fetch_locations(info_->num_subgraph_outputs, nullptr);
+  utils::FinalizeFeedFetchCopyInfo(subgraph_session_state, *ffm, feed_locations, fetch_locations);
 
-  status = utils::FinalizeFeedFetchCopyInfo(subgraph_session_state, *ffm, feed_locations, fetch_locations);
+  feeds_fetches_manager_ = std::move(ffm);
 
-  if (status.IsOK()) {
-    feeds_fetches_manager_ = std::move(ffm);
-  }
-
-  return status;
+  return Status::OK();
 }
 
 Status Loop::Compute(OpKernelContext* ctx) const {
@@ -338,7 +328,7 @@ Status LoopImpl::Initialize() {
 void LoopImpl::CreateInitialFeeds(std::vector<OrtValue>& feeds) {
   feeds.reserve(info_.num_subgraph_inputs + info_.num_implicit_inputs);
 
-  // This ordering is the same as used in CreateFeedsFetchesManager
+  // This ordering is the same as used in SetupSubgraphExecutionInfo
   feeds.push_back(iter_num_mlvalue_);
   feeds.push_back(condition_mlvalue_);
 

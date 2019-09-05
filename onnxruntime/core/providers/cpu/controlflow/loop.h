@@ -18,14 +18,16 @@ class Loop final : public OpKernel, public controlflow::IControlFlowKernel {
 
   Status Compute(OpKernelContext* ctx) const override;
 
-  common::Status CreateFeedsFetchesManager(const SessionState& session_state,
-                                           const std::string& attribute_name,
-                                           const SessionState& subgraph_session_state) override;
+  common::Status SetupSubgraphExecutionInfo(const SessionState& session_state,
+                                            const std::string& attribute_name,
+                                            const SessionState& subgraph_session_state) override;
 
+  // hide internal implementation details via forward declaration.
   struct Info;
   ~Loop();
 
  private:
+  // Info and FeedsFetchesManager re-used for each subgraph execution.
   std::unique_ptr<Info> info_;
   std::unique_ptr<FeedsFetchesManager> feeds_fetches_manager_;
 };

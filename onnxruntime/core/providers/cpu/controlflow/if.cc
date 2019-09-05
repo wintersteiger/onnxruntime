@@ -57,19 +57,16 @@ ONNX_CPU_OPERATOR_KERNEL(If,
                          If);
 
 struct If::Info {
-  If::Info(const onnxruntime::Node& node, const GraphViewer& subgraph_in)
-      : subgraph{subgraph_in} {
+  If::Info(const onnxruntime::Node& node, const GraphViewer& subgraph_in) : subgraph{subgraph_in} {
     num_implicit_inputs = static_cast<int>(node.ImplicitInputDefs().size());
     num_outputs = static_cast<int>(node.OutputDefs().size());
 
     auto& subgraph_outputs = subgraph.GetOutputs();
     auto num_subgraph_outputs = subgraph_outputs.size();
 
-    if (num_subgraph_outputs != static_cast<size_t>(num_outputs)) {
-      auto status = ORT_MAKE_STATUS(ONNXRUNTIME, FAIL, "'If' node has ", num_outputs,
-                                    " outputs which doesn't match the subgraph's ", num_subgraph_outputs, " outputs.");
-      ORT_THROW(status);
-    }
+    ORT_ENFORCE(num_subgraph_outputs == static_cast<size_t>(num_outputs),
+                "'If' node has ", num_outputs, " outputs which doesn't match the subgraph's ",
+                num_subgraph_outputs, " outputs.");
 
     subgraph_output_names.reserve(num_subgraph_outputs);
     for (size_t i = 0; i < num_subgraph_outputs; ++i) {
@@ -128,20 +125,22 @@ If::If(const OpKernelInfo& info) : OpKernel(info) {
   ORT_IGNORE_RETURN_VALUE(proto);
 }
 
+// we need this to be in the .cc so 'unique_ptr<Info> info_' can be handled
 If::~If() = default;
 
-common::Status If::CreateFeedsFetchesManager(const SessionState& session_state,
-                                             const std::string& attribute_name,
-                                             const SessionState& subgraph_session_state) {
-  const auto& node = Node();
+common::Status If::SetupSubgraphExecutionInfo(const SessionState& session_state,
+                                              const std::string& attribute_name,
+                                              const SessionState& subgraph_session_state) {
   std::unique_ptr<If::Info>& info = attribute_name == "then_branch"
                                         ? then_info_
                                         : else_info_;
 
-  ORT_ENFORCE(info == nullptr);
+  ORT_ENFORCE(info == nullptr, "SetupSubgraphExecutionInfo should only be called once for each subgraph.");
+
+  const auto& node = Node();
   info = std::make_unique<If::Info>(node, *subgraph_session_state.GetGraphViewer());
 
-  // all inputs are implicit
+  // all inputs for the If subgraph are implicit
   std::vector<std::string> feed_names;
   feed_names.reserve(info->num_implicit_inputs);
 
@@ -157,38 +156,34 @@ common::Status If::CreateFeedsFetchesManager(const SessionState& session_state,
   }
 
   std::unique_ptr<FeedsFetchesManager> ffm;
-  auto status = FeedsFetchesManager::Create(feed_names, info->subgraph_output_names, subgraph_session_state, ffm);
-  ORT_RETURN_IF_ERROR(status);
+  ORT_RETURN_IF_ERROR(FeedsFetchesManager::Create(feed_names, info->subgraph_output_names, subgraph_session_state, ffm));
+  ORT_RETURN_IF_ERROR(utils::InitializeFeedFetchCopyInfo(subgraph_session_state, *ffm));
 
-  status = utils::InitializeFeedFetchCopyInfo(subgraph_session_state, *ffm);
-  ORT_RETURN_IF_ERROR(status);
-
-  // default to CPU for all and override in FindDevicesForFeeds.
-  // Use session state for this node and not the subgraph when looking for feed info
-  std::vector<OrtDevice> feed_locations(feed_names.size());
+  // find the location all the feeds will be coming from
+  std::vector<OrtDevice> feed_locations;
   controlflow::detail::FindDevicesForValues(session_state, feed_names, feed_locations);
 
-  // init to nullptr
   std::vector<const OrtAllocatorInfo*> fetch_locations;
+  fetch_locations.reserve(info->num_outputs);
 
-  // we need the allocator info for each output from this node as we write directly into that
+  // we need the allocator info for each output from the If node
+  // as the subgraph execution will write directly into those buffers
   const auto& outputs = node.OutputDefs();
   for (int i = 0, end = info->num_outputs; i < end; ++i) {
     const auto& alloc_info = controlflow::detail::FindAllocatorInfoForValue(session_state, outputs[i]->Name());
     fetch_locations.push_back(&alloc_info);
   }
 
-  status = utils::FinalizeFeedFetchCopyInfo(subgraph_session_state, *ffm, feed_locations, fetch_locations);
+  utils::FinalizeFeedFetchCopyInfo(subgraph_session_state, *ffm, feed_locations, fetch_locations);
 
-  if (status.IsOK()) {
-    if (attribute_name == "then_branch")
-      then_feeds_fetches_manager_ = std::move(ffm);
-    else
-      else_feeds_fetches_manager_ = std::move(ffm);
-  }
+  if (attribute_name == "then_branch")
+    then_feeds_fetches_manager_ = std::move(ffm);
+  else
+    else_feeds_fetches_manager_ = std::move(ffm);
 
-  return status;
+  return Status::OK();
 }
+
 Status If::Compute(OpKernelContext* ctx) const {
   ORT_ENFORCE(then_feeds_fetches_manager_ && else_feeds_fetches_manager_,
               "CreateFeedsFetchesManager must be called prior to execution of graph.");

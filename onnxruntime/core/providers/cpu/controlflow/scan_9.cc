@@ -189,14 +189,17 @@ Scan<9>::Scan(const OpKernelInfo& info) : OpKernel(info) {
   }
 }
 
+// we need this to be in the .cc so 'unique_ptr<Info> info_' can be handled
 template <>
 Scan<9>::~Scan() = default;
 
 template <>
-Status Scan<9>::CreateFeedsFetchesManager(const SessionState& session_state,
-                                          const std::string& attribute_name,
-                                          const SessionState& subgraph_session_state) {
-  const onnxruntime::Node& node = Node();
+Status Scan<9>::SetupSubgraphExecutionInfo(const SessionState& session_state,
+                                           const std::string& attribute_name,
+                                           const SessionState& subgraph_session_state) {
+  ORT_ENFORCE(info_ == nullptr, "SetupSubgraphExecutionInfo should only be called once for each subgraph.");
+
+  const auto& node = Node();
   info_ = std::make_unique<Scan<9>::Info>(node, *subgraph_session_state.GetGraphViewer(),
                                           static_cast<int>(num_scan_inputs_));
 

@@ -162,7 +162,7 @@ static common::Status CalculateStaticCopyInfoForFeeds(const SessionState& sessio
                                                       const std::vector<std::string>& feed_names,
                                                       std::vector<MLValueCopyInfo>& copy_info) {
   for (size_t idx = 0, end = feed_names.size(); idx < end; ++idx) {
-    CalculateStaticCopyInfoForFeed(session_state, feed_names[idx], copy_info[idx]);
+    ORT_RETURN_IF_ERROR(CalculateStaticCopyInfoForFeed(session_state, feed_names[idx], copy_info[idx]));
   }
 
   return Status::OK();
@@ -224,6 +224,7 @@ static bool FinalizeCopyInfoForFeeds(const std::vector<OrtDevice>& feed_location
 static bool FinalizeCopyInfoForFetches(const SessionState& session_state,
                                        const std::vector<const OrtAllocatorInfo*>& fetch_alloc_info,
                                        std::vector<MLValueCopyInfo>& copy_info) {
+  ORT_ENFORCE(fetch_alloc_info.size() == copy_info.size());
   bool copy_needed = false;
 
   auto& execution_providers = session_state.GetExecutionProviders();
@@ -250,12 +251,12 @@ static bool FinalizeCopyInfoForFetches(const SessionState& session_state,
 
 // Finalize the copy info using the OrtDevice and OrtAllocatorInfo for the feeds and fetches
 // This can be used by control flow nodes prior to the execution of the overall graph.
-common::Status FinalizeFeedFetchCopyInfo(const SessionState& session_state,
-                                         FeedsFetchesManager& feeds_fetches_manager,
-                                         const std::vector<OrtDevice>& feed_locations,
-                                         const std::vector<const OrtAllocatorInfo*>& fetch_alloc_info) {
+void FinalizeFeedFetchCopyInfo(const SessionState& session_state,
+                               FeedsFetchesManager& feeds_fetches_manager,
+                               const std::vector<OrtDevice>& feed_locations,
+                               const std::vector<const OrtAllocatorInfo*>& fetch_alloc_info) {
   if (feeds_fetches_manager.GetDeviceCopyChecks().status == DeviceCopyCheck::NoCopy)
-    return Status::OK();
+    return;
 
   bool need_copy = FinalizeCopyInfoForFeeds(feed_locations, feeds_fetches_manager.GetMutableFeedsDeviceCopyInfo());
   DeviceCopyCheck input_copy = need_copy ? DeviceCopyCheck::Copy : DeviceCopyCheck::NoCopy;
@@ -265,17 +266,15 @@ common::Status FinalizeFeedFetchCopyInfo(const SessionState& session_state,
   DeviceCopyCheck output_copy = need_copy ? DeviceCopyCheck::Copy : DeviceCopyCheck::NoCopy;
 
   feeds_fetches_manager.SetDeviceCopyChecks(input_copy, output_copy);
-
-  return Status::OK();
 }
 
 // Finalize the copy info using the OrtValue instances for the feeds and fetches
-static common::Status FinalizeFeedFetchCopyInfo(const SessionState& session_state,
-                                                FeedsFetchesManager& feeds_fetches_manager,
-                                                const std::vector<OrtValue>& feeds,
-                                                std::vector<OrtValue>& fetches) {
+static void FinalizeFeedFetchCopyInfo(const SessionState& session_state,
+                                      FeedsFetchesManager& feeds_fetches_manager,
+                                      const std::vector<OrtValue>& feeds,
+                                      std::vector<OrtValue>& fetches) {
   if (feeds_fetches_manager.GetDeviceCopyChecks().status == DeviceCopyCheck::NoCopy)
-    return Status::OK();
+    return;
 
   auto num_inputs = feeds.size();
   auto num_outputs = feeds_fetches_manager.GetFeedsFetchesInfo().output_names.size();
@@ -300,9 +299,7 @@ static common::Status FinalizeFeedFetchCopyInfo(const SessionState& session_stat
     }
   }
 
-  auto status = FinalizeFeedFetchCopyInfo(session_state, feeds_fetches_manager, feed_locations, fetch_alloc_info);
-
-  return status;
+  FinalizeFeedFetchCopyInfo(session_state, feeds_fetches_manager, feed_locations, fetch_alloc_info);
 }
 
 static common::Status CopyInputsAcrossDevices(const std::vector<OrtValue>& orig_feeds,
@@ -431,11 +428,10 @@ common::Status ExecuteGraph(const SessionState& session_state,
   ORT_RETURN_IF_ERROR(utils::InitializeFeedFetchCopyInfo(session_state, feeds_fetches_manager));
 
   // finalize the copy info using the provided feeds and fetches. will update device_copy_checks in the background
-  auto status = FinalizeFeedFetchCopyInfo(session_state, feeds_fetches_manager, feeds, fetches);
-  ORT_RETURN_IF_ERROR(status);
+  FinalizeFeedFetchCopyInfo(session_state, feeds_fetches_manager, feeds, fetches);
 
-  status = ExecuteGraphImpl(session_state, feeds_fetches_manager, feeds, fetches, {},
-                            sequential_execution, terminate_flag, logger);
+  auto status = ExecuteGraphImpl(session_state, feeds_fetches_manager, feeds, fetches, {},
+                                 sequential_execution, terminate_flag, logger);
 
   return status;
 }

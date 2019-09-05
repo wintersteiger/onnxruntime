@@ -451,7 +451,7 @@ common::Status InferenceSession::InitializeSubgraphSessions(Graph& graph, Sessio
       auto* p_op_kernel = session_state.GetMutableKernel(node.Index());
       ORT_ENFORCE(p_op_kernel);
       auto& control_flow_kernel = dynamic_cast<controlflow::IControlFlowKernel&>(*p_op_kernel);
-      ORT_RETURN_IF_ERROR(control_flow_kernel.CreateFeedsFetchesManager(session_state, name, *subgraph_session_state));
+      ORT_RETURN_IF_ERROR(control_flow_kernel.SetupSubgraphExecutionInfo(session_state, name, *subgraph_session_state));
 
       // recurse
       ORT_RETURN_IF_ERROR(InitializeSubgraphSessions(subgraph, *subgraph_session_state));

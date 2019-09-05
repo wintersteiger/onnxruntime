@@ -19,15 +19,16 @@ class If final : public OpKernel, public controlflow::IControlFlowKernel {
 
   Status Compute(OpKernelContext* ctx) const override;
 
-  common::Status CreateFeedsFetchesManager(const SessionState& session_state,
-                                           const std::string& attribute_name,
-                                           const SessionState& subgraph_session_state) override;
+  common::Status SetupSubgraphExecutionInfo(const SessionState& session_state,
+                                            const std::string& attribute_name,
+                                            const SessionState& subgraph_session_state) override;
 
-  // hide internal implementation details
+  // hide internal implementation details via forward declaration.
   struct Info;
   ~If();
 
  private:
+  // Info and FeedsFetchesManager re-used for each subgraph execution.
   std::unique_ptr<Info> then_info_;
   std::unique_ptr<Info> else_info_;
   std::unique_ptr<FeedsFetchesManager> then_feeds_fetches_manager_;

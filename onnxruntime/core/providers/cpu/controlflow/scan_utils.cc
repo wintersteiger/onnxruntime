@@ -42,29 +42,15 @@ Info::Info(const Node& node, const GraphViewer& subgraph_in, int num_scan_inputs
 
   num_implicit_inputs = static_cast<int>(node.ImplicitInputDefs().size());
 
-  auto* graph_inputs = &subgraph.GetInputs();
-  /****
-    // See if we can avoid this. We don't do it for Loop and the spec doesn't say we need to support
-    // overriding initializers in subgraphs
-    if (num_inputs > static_cast<int>(graph_inputs->size())) {
-      // fallback to using required + optional inputs.
-      graph_inputs = &subgraph.GetInputsIncludingInitializers();
-      ORT_ENFORCE(num_inputs == static_cast<int>(graph_inputs->size()),
-                  "Graph::InferAndVerifySubgraphTypes should have already validated that "
-                  "num_inputs matched the subgraph input count.");
-    }
-    ****/
-
-  auto num_subgraph_inputs = graph_inputs->size();
-  if (static_cast<size_t>(num_variadic_inputs) != num_subgraph_inputs) {
-    auto status = ORT_MAKE_STATUS(ONNXRUNTIME, FAIL, "The subgraph in 'body' requires ", num_subgraph_inputs,
-                                  " inputs but Scan was only given ", num_variadic_inputs);
-    ORT_THROW(status);
-  }
+  auto& graph_inputs = subgraph.GetInputs();
+  auto num_subgraph_inputs = static_cast<int>(graph_inputs.size());
+  ORT_ENFORCE(num_variadic_inputs == num_subgraph_inputs,
+              "The subgraph in 'body' requires ", num_subgraph_inputs,
+              " inputs but Scan was only given ", num_variadic_inputs);
 
   subgraph_input_names.reserve(num_inputs);
   subgraph_output_names.reserve(num_outputs);
-  for (const auto& input : *graph_inputs) {
+  for (const auto& input : graph_inputs) {
     subgraph_input_names.push_back(input->Name());
   }
 
@@ -162,8 +148,7 @@ Status CreateFeedsFetchesManager(const Node& node,
 
   // find locations. use session_state as they're coming from Scan inputs
   std::vector<OrtDevice> feed_locations;
-  auto status = controlflow::detail::FindDevicesForValues(session_state, feed_names, feed_locations);
-  ORT_RETURN_IF_ERROR(status);
+  ORT_RETURN_IF_ERROR(controlflow::detail::FindDevicesForValues(session_state, feed_names, feed_locations));
 
   // now update the feed names to use the subgraph input names so we know what devices they're needed on
   for (int i = 0; i < info.num_variadic_inputs; ++i) {
@@ -171,11 +156,8 @@ Status CreateFeedsFetchesManager(const Node& node,
   }
 
   std::unique_ptr<FeedsFetchesManager> ffm;
-  status = FeedsFetchesManager::Create(feed_names, info.subgraph_output_names, subgraph_session_state, ffm);
-  ORT_RETURN_IF_ERROR(status);
-
-  status = utils::InitializeFeedFetchCopyInfo(subgraph_session_state, *ffm);
-  ORT_RETURN_IF_ERROR(status);
+  ORT_RETURN_IF_ERROR(FeedsFetchesManager::Create(feed_names, info.subgraph_output_names, subgraph_session_state, ffm));
+  ORT_RETURN_IF_ERROR(utils::InitializeFeedFetchCopyInfo(subgraph_session_state, *ffm));
 
   // we provide fetches using memory allocated by Scan, so provide locations based on the Scan output locations
   std::vector<const OrtAllocatorInfo*> fetch_locations;
@@ -186,13 +168,11 @@ Status CreateFeedsFetchesManager(const Node& node,
     fetch_locations.push_back(&alloc_info);
   }
 
-  status = utils::FinalizeFeedFetchCopyInfo(subgraph_session_state, *ffm, feed_locations, fetch_locations);
+  utils::FinalizeFeedFetchCopyInfo(subgraph_session_state, *ffm, feed_locations, fetch_locations);
 
-  if (status.IsOK()) {
-    feeds_fetches_manager = std::move(ffm);
-  }
+  feeds_fetches_manager = std::move(ffm);
 
-  return status;
+  return Status::OK();
 }
 
 Status IterateSequence(OpKernelContextInternal& context, const SessionState& session_state,
