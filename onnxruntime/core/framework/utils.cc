@@ -134,6 +134,25 @@ static bool HaveCpuExecutionProvidersOnly(const ExecutionProviders& execution_pr
   return true;
 }
 
+static const OrtAllocatorInfo& FindAllocatorInfoForValue(const OrtValueNameIdxMap& map,
+                                                         const SequentialExecutionPlan& plan,
+                                                         const std::string& name) {
+  int idx = -1;
+  auto status = map.GetIdx(name, idx);
+  ORT_THROW_IF_ERROR(status);
+
+  const auto& location = plan.GetLocation(idx);
+  return location;
+}
+
+const OrtAllocatorInfo& FindAllocatorInfoForValue(const SessionState& session_state,
+                                                  const std::string& name) {
+  const auto* exec_plan_ptr = session_state.GetExecutionPlan();
+  ORT_ENFORCE(exec_plan_ptr);
+
+  return FindAllocatorInfoForValue(session_state.GetOrtValueNameIdxMap(), *exec_plan_ptr, name);
+}
+
 // get the target device info for the node consuming each input provided in the feeds
 static common::Status CalculateStaticCopyInfoForFeed(const SessionState& session_state,
                                                      const std::string& input_name,
@@ -175,11 +194,20 @@ static common::Status CalculateStaticCopyInfoForFetches(const SessionState& sess
   for (size_t idx = 0, end = fetch_names.size(); idx < end; ++idx) {
     const std::string& output_name = fetch_names[idx];
 
-    std::vector<SessionState::NodeInfo> node_info_vec;
-    ORT_RETURN_IF_ERROR(session_state.GetOutputNodeInfo(output_name, node_info_vec));
-    const auto& node_info = node_info_vec.front();  // only one entry as only one node can produce a given output
+    const auto& info = FindAllocatorInfoForValue(session_state, output_name);
+    copy_info[idx].source_device = info.device;
 
-    copy_info[idx].source_device = *node_info.device;
+    //std::vector<SessionState::NodeInfo> node_info_vec;
+    //auto status = session_state.GetOutputNodeInfo(output_name, node_info_vec);
+
+    //if (status.IsOK()) {
+    //  const auto& node_info = node_info_vec.front();  // only one entry as only one node can produce a given output
+    //  copy_info[idx].source_device = *node_info.device;
+    //} else {
+    //  // edge case where an initializer directly provides output so no NodeInfo involved
+    //  const auto& info = FindAllocatorInfoForValue(session_state, output_name);
+    //  copy_info[idx].source_device = info.device;
+    //}
   }
 
   return Status::OK();

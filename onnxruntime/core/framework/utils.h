@@ -40,6 +40,10 @@ const std::string& GetNodeInputProviderType(const SessionState::NodeInfo& info);
 common::Status CopyOneInputAcrossDevices(const SessionState& session_state, const std::string& input_name,
                                          const OrtValue& orig_mlvalue, OrtValue& new_mlvalue);
 
+// Searches the allocation plan from the session_state to find the OrtAllocatorInfo for the value 'name'.
+const OrtAllocatorInfo& FindAllocatorInfoForValue(const SessionState& session_state,
+                                                  const std::string& name);
+
 // Initialize the feed and fetch copy info using session_state.
 // Determines the device that each graph input that will be fed will be consumed on,
 // and the device that each graph output that will be fetched will be created on.

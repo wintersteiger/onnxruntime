@@ -167,7 +167,8 @@ common::Status If::SetupSubgraphExecutionInfo(const SessionState& session_state,
   // as the subgraph execution will write directly into those buffers
   const auto& outputs = node.OutputDefs();
   for (int i = 0, end = info->num_outputs; i < end; ++i) {
-    const auto& alloc_info = controlflow::detail::FindAllocatorInfoForValue(session_state, outputs[i]->Name());
+    // const auto& alloc_info = controlflow::detail::FindAllocatorInfoForValue(session_state, outputs[i]->Name());
+    const auto& alloc_info = utils::FindAllocatorInfoForValue(session_state, outputs[i]->Name());
     fetch_locations.push_back(&alloc_info);
   }
 

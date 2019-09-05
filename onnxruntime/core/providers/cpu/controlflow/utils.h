@@ -30,9 +30,9 @@ class IControlFlowKernel {
 
 namespace detail {
 
-// Searches the allocation plan from the session_state to find the OrtAllocatorInfo for the value 'name'.
-const OrtAllocatorInfo& FindAllocatorInfoForValue(const SessionState& session_state,
-                                                  const std::string& name);
+//// Searches the allocation plan from the session_state to find the OrtAllocatorInfo for the value 'name'.
+//const OrtAllocatorInfo& FindAllocatorInfoForValue(const SessionState& session_state,
+//                                                  const std::string& name);
 
 // Searches the allocation plan from the session_state to find the OrtDevice each value in 'names' is located on,
 // and updates the entry in devices with the same index.

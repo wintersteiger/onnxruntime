@@ -165,7 +165,8 @@ Status CreateFeedsFetchesManager(const Node& node,
   fetch_locations.reserve(info.num_outputs);
 
   for (const auto& output : node.OutputDefs()) {
-    const auto& alloc_info = controlflow::detail::FindAllocatorInfoForValue(session_state, output->Name());
+    // const auto& alloc_info = controlflow::detail::FindAllocatorInfoForValue(session_state, output->Name());
+    const auto& alloc_info = utils::FindAllocatorInfoForValue(session_state, output->Name());
     fetch_locations.push_back(&alloc_info);
   }
 
