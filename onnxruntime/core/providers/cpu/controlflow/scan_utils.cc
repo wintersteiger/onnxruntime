@@ -156,7 +156,8 @@ Status CreateFeedsFetchesManager(const Node& node,
   }
 
   std::unique_ptr<FeedsFetchesManager> ffm;
-  ORT_RETURN_IF_ERROR(FeedsFetchesManager::Create(feed_names, info.subgraph_output_names, subgraph_session_state, ffm));
+  ORT_RETURN_IF_ERROR(FeedsFetchesManager::Create(feed_names, info.subgraph_output_names,
+                                                  subgraph_session_state.GetOrtValueNameIdxMap(), ffm));
   ORT_RETURN_IF_ERROR(utils::InitializeFeedFetchCopyInfo(subgraph_session_state, *ffm));
 
   // we provide fetches using memory allocated by Scan, so provide locations based on the Scan output locations

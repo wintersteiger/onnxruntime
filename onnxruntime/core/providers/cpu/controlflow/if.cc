@@ -156,7 +156,7 @@ common::Status If::SetupSubgraphExecutionInfo(const SessionState& session_state,
   }
 
   std::unique_ptr<FeedsFetchesManager> ffm;
-  ORT_RETURN_IF_ERROR(FeedsFetchesManager::Create(feed_names, info->subgraph_output_names, subgraph_session_state, ffm));
+  ORT_RETURN_IF_ERROR(FeedsFetchesManager::Create(feed_names, info->subgraph_output_names, subgraph_map, ffm));
   ORT_RETURN_IF_ERROR(utils::InitializeFeedFetchCopyInfo(subgraph_session_state, *ffm));
 
   // find the location all the feeds will be coming from

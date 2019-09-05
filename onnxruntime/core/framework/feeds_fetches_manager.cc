@@ -42,16 +42,16 @@ Status FeedsFetchesInfo::SetMLValueIdxs(const OrtValueNameIdxMap& ort_value_name
 
 Status FeedsFetchesManager::Create(const std::vector<std::string>& feed_names,
                                    const std::vector<std::string>& output_names,
-                                   const SessionState& session_state,
+                                   const OrtValueNameIdxMap& ort_value_name_idx_map,
                                    std::unique_ptr<FeedsFetchesManager>& feed_fetch_manager) {
-  FeedsFetchesInfo info{feed_names, output_names, session_state.GetOrtValueNameIdxMap()};
+  FeedsFetchesInfo info{feed_names, output_names, ort_value_name_idx_map};
 
-  feed_fetch_manager = std::make_unique<FeedsFetchesManager>(std::move(info), session_state);
+  feed_fetch_manager = std::make_unique<FeedsFetchesManager>(std::move(info));
 
   return Status::OK();
 }
 
-FeedsFetchesManager::FeedsFetchesManager(FeedsFetchesInfo&& info, const SessionState& session_state)
+FeedsFetchesManager::FeedsFetchesManager(FeedsFetchesInfo&& info)
     : feeds_fetches_info_{info} {
   // init with default values
   feeds_device_copy_info_.resize(info.feed_names.size());

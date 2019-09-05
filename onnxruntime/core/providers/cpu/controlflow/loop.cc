@@ -232,7 +232,8 @@ common::Status Loop::SetupSubgraphExecutionInfo(const SessionState& session_stat
   }
 
   std::unique_ptr<FeedsFetchesManager> ffm;
-  ORT_RETURN_IF_ERROR(FeedsFetchesManager::Create(feed_names, info_->subgraph_output_names, subgraph_session_state, ffm));
+  ORT_RETURN_IF_ERROR(FeedsFetchesManager::Create(feed_names, info_->subgraph_output_names,
+                                                  subgraph_session_state.GetOrtValueNameIdxMap(), ffm));
   ORT_RETURN_IF_ERROR(utils::InitializeFeedFetchCopyInfo(subgraph_session_state, *ffm));
 
   // we don't provide pre-allocated fetches for Loop subgraph execution.

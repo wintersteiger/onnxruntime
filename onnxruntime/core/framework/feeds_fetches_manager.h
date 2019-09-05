@@ -58,10 +58,10 @@ struct MLValueCopyInfo {
 class FeedsFetchesManager {
  public:
   static Status Create(const std::vector<std::string>& feed_names, const std::vector<std::string>& output_names,
-                       const SessionState& session_state,
+                       const OrtValueNameIdxMap& ort_value_name_idx_map,
                        std::unique_ptr<FeedsFetchesManager>& feeds_fetches_manager);
 
-  FeedsFetchesManager(FeedsFetchesInfo&& info, const SessionState& session_state);
+  FeedsFetchesManager(FeedsFetchesInfo&& info);
 
   const FeedsFetchesInfo& GetFeedsFetchesInfo() const { return feeds_fetches_info_; }
 
