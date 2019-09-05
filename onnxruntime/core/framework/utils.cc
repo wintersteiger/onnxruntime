@@ -231,7 +231,7 @@ static bool FinalizeCopyInfoForFetches(const SessionState& session_state,
   const auto& cpu_execution_provider = *execution_providers.Get(onnxruntime::kCpuExecutionProvider);  // never null
 
   auto num_outputs = fetch_alloc_info.size();
-  for (int i = 0; i < num_outputs; ++i) {
+  for (size_t i = 0; i < num_outputs; ++i) {
     const IExecutionProvider* provider = &cpu_execution_provider;
     const auto* alloc_info = fetch_alloc_info[i];
 
@@ -292,7 +292,7 @@ static void FinalizeFeedFetchCopyInfo(const SessionState& session_state,
   // create default instances if needed
   fetches.resize(num_outputs);
 
-  for (int i = 0; i < num_outputs; ++i) {
+  for (size_t i = 0; i < num_outputs; ++i) {
     const auto& fetch = fetches[i];
     if (fetch.IsAllocated() && fetch.IsTensor()) {
       fetch_alloc_info[i] = &fetch.Get<Tensor>().Location();
@@ -395,7 +395,7 @@ static common::Status ExecuteGraphImpl(const SessionState& session_state,
       // need intermediate fetches. use pre-allocated fetches where possible.
       device_fetches.reserve(num_outputs);
 
-      for (int i = 0; i < num_outputs; ++i) {
+      for (size_t i = 0; i < num_outputs; ++i) {
         if (fetch_copy_info[i].source_device == fetch_copy_info[i].target_device && fetches[i].IsAllocated()) {
           device_fetches.push_back(fetches[i]);
         } else {

@@ -15,7 +15,6 @@
 #include "core/framework/allocator.h"
 #include "core/framework/framework_common.h"
 #include "core/framework/op_kernel_context_internal.h"
-#include "core/framework/sequential_executor.h"
 #include "core/framework/session_state.h"
 #include "core/framework/tensorprotoutils.h"
 #include "core/framework/utils.h"

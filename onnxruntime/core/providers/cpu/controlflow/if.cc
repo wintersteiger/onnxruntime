@@ -4,14 +4,11 @@
 #include "core/providers/cpu/controlflow/if.h"
 #include "core/providers/cpu/controlflow/utils.h"
 
-#include "core/framework/execution_frame.h"
 #include "core/framework/framework_common.h"
 #include "core/framework/op_kernel_context_internal.h"
-#include "core/framework/sequential_executor.h"
 #include "core/framework/session_state.h"
-#include "core/framework/utils.h"
-
 #include "core/framework/tensorprotoutils.h"
+#include "core/framework/utils.h"
 
 using namespace ONNX_NAMESPACE;
 using namespace onnxruntime::common;
