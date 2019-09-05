@@ -58,7 +58,8 @@ Status ScatterNDBase::PrepareForCompute(OpKernelContext* context, Prepare& p) co
   }();
   if (is_update_shape_invalid) {
     return ORT_MAKE_STATUS(ONNXRUNTIME, INVALID_ARGUMENT,
-      "updates tensor should have shape equal to indices.shape[:-1] + data.shape[indices.shape[-1]:].");
+      "updates tensor should have shape equal to indices.shape[:-1] + data.shape[indices.shape[-1]:]. ",
+      "updates shape: ", update_shape, ", indices shape: ", indice_shape, ", data shape: ", input_shape);
   }
 
   auto output_tensor = context->Output(0, TensorShape(input_shape));
