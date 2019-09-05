@@ -193,7 +193,7 @@ Status IterateSequence(OpKernelContextInternal& context, const SessionState& ses
                        std::vector<LoopStateVariable>& loop_state_variables,
                        std::vector<OrtValueTensorSlicer<const OrtValue>::Iterator>& scan_input_stream_iterators,
                        int64_t seq_length, int num_loop_state_variables, int num_variadic_inputs,
-                       int num_variadic_outputs, std::unordered_map<std::string, const OrtValue*>& implicit_inputs,
+                       int num_variadic_outputs, const std::vector<const OrtValue*>& implicit_inputs,
                        std::vector<std::unique_ptr<OutputIterator>>& output_iterators,
                        const FeedsFetchesManager& ffm);
 

@@ -152,7 +152,7 @@ class ScanImpl {
   // inputs for graph. either original input value or transposed input if an axis other than 0 was specified
   std::vector<OrtValue> inputs_;
   std::vector<std::unique_ptr<OutputIterator>> output_iterators_;
-  std::unordered_map<std::string, const OrtValue*> implicit_inputs_;
+  const std::vector<const OrtValue*>& implicit_inputs_;
 };
 
 template <>

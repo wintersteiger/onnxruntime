@@ -128,7 +128,7 @@ class Scan8Impl {
 
   std::vector<std::unique_ptr<OutputIterator>> output_iterators_;
 
-  std::unordered_map<std::string, const OrtValue*> implicit_inputs_;
+  const std::vector<const OrtValue*>& implicit_inputs_;
 };
 
 template <>

@@ -56,6 +56,7 @@ ONNX_CPU_OPERATOR_KERNEL(If,
 struct If::Info {
   Info(const onnxruntime::Node& node, const GraphViewer& subgraph_in) : subgraph{subgraph_in} {
     num_implicit_inputs = static_cast<int>(node.ImplicitInputDefs().size());
+    used_implicit_inputs = std::vector<bool>(num_implicit_inputs, true);
     num_outputs = static_cast<int>(node.OutputDefs().size());
 
     auto& subgraph_outputs = subgraph.GetOutputs();
@@ -74,6 +75,7 @@ struct If::Info {
 
   const GraphViewer& subgraph;
 
+  std::vector<bool> used_implicit_inputs;
   int num_implicit_inputs;
   int num_outputs;
 
@@ -100,7 +102,7 @@ class IfImpl {
   const SessionState& session_state_;
   const If::Info& info_;
 
-  std::unordered_map<std::string, const OrtValue*> implicit_inputs_;
+  const std::vector<const OrtValue*>& implicit_inputs_;
 
   enum class AllocationType {
     Delayed,  // allocation of If output will be done by subgraph execution
@@ -143,12 +145,17 @@ common::Status If::SetupSubgraphExecutionInfo(const SessionState& session_state,
 
   const auto& subgraph_map = subgraph_session_state.GetOrtValueNameIdxMap();
 
-  for (auto& entry : node.ImplicitInputDefs()) {
-    // prune out entries that aren't in this subgraph as the 'then' and 'else' subgraphs are different
-    // and implicit inputs covers both
+  // prune out entries that aren't in this subgraph as the 'then' and 'else' subgraphs are different
+  // and implicit inputs covers both
+  const auto& implicit_input_defs = node.ImplicitInputDefs();
+  for (size_t i = 0, end = info->num_implicit_inputs; i < end; ++i) {
+    const auto* implicit_input = implicit_input_defs[i];
     int idx;
-    if (subgraph_map.GetIdx(entry->Name(), idx).IsOK()) {
-      feed_names.push_back(entry->Name());
+    if (subgraph_map.GetIdx(implicit_input->Name(), idx).IsOK()) {
+      feed_names.push_back(implicit_input->Name());
+    } else {
+      --info->num_implicit_inputs;
+      info->used_implicit_inputs[i] = false;
     }
   }
 
@@ -268,11 +275,13 @@ Status IfImpl::Execute(const FeedsFetchesManager& ffm) {
   std::vector<OrtValue> feeds;
   feeds.reserve(num_inputs);
 
-  for (auto& feed_name : feed_names) {
-    const auto* feed_mlvalue = implicit_inputs_[feed_name];
-    ORT_ENFORCE(feed_mlvalue, "All implicit inputs should have OrtValue instances by now. ", feed_name, " did not.");
-
-    feeds.push_back(*feed_mlvalue);
+  // order of implicit_inputs_ matches order of feed names. skip implicit inputs that don't apply to this subgraph
+  int i = 0;
+  for (bool use : info_.used_implicit_inputs) {
+    if (use) {
+      feeds.push_back(*implicit_inputs_[i]);
+    }
+    ++i;
   }
 
   std::vector<OrtValue> fetches;

@@ -165,7 +165,7 @@ class LoopImpl {
   int64_t max_trip_count_;
   bool condition_;
 
-  std::unordered_map<std::string, const OrtValue*> implicit_inputs_;
+  const std::vector<const OrtValue*>& implicit_inputs_;
 
   OrtValue iter_num_mlvalue_;
   OrtValue condition_mlvalue_;
@@ -338,10 +338,9 @@ void LoopImpl::CreateInitialFeeds(std::vector<OrtValue>& feeds) {
     feeds.push_back(*context_.GetInputMLValue(i));
   }
 
-  // pass in implicit inputs as feeds.
-  for (auto& entry : implicit_inputs_) {
-    ORT_ENFORCE(entry.second, "All implicit inputs should have OrtValue instances by now. ", entry.first, " did not.");
-    feeds.push_back(*entry.second);
+  // pass in implicit inputs as feeds. order matches
+  for (const auto* entry : implicit_inputs_) {
+    feeds.push_back(*entry);
   }
 }
 

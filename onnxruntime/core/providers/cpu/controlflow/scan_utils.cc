@@ -181,7 +181,7 @@ Status IterateSequence(OpKernelContextInternal& context, const SessionState& ses
                        std::vector<LoopStateVariable>& loop_state_variables,
                        std::vector<OrtValueTensorSlicer<const OrtValue>::Iterator>& scan_input_stream_iterators,
                        int64_t seq_length, int num_loop_state_variables, int num_variadic_inputs,
-                       int num_variadic_outputs, std::unordered_map<std::string, const OrtValue*>& implicit_inputs,
+                       int num_variadic_outputs, const std::vector<const OrtValue*>& implicit_inputs,
                        std::vector<std::unique_ptr<OutputIterator>>& output_iterators,
                        const FeedsFetchesManager& ffm) {
   Status status = Status::OK();
@@ -198,11 +198,8 @@ Status IterateSequence(OpKernelContextInternal& context, const SessionState& ses
 
   // add implicit inputs and pass in implicit inputs as feeds. we're going to pass in the explicit inputs
   // first in each iteration though so offset by num_variadic_inputs
-  int i = 0;
-  for (auto& entry : implicit_inputs) {
-    ORT_ENFORCE(entry.second, "All implicit inputs should have OrtValue instances by now. ", entry.first, " did not.");
-    feeds[num_variadic_inputs + i] = *entry.second;
-    ++i;
+  for (size_t i = 0; i < num_implicit_inputs; ++i) {
+    feeds[num_variadic_inputs + i] = *implicit_inputs[i];
   }
 
   int64_t seq_no = 0;
