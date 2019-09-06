@@ -86,8 +86,7 @@ def create_backend_test(testname=None):
 
     # Type not supported
     backend_test.exclude(r'(FLOAT16)')
-    backend_test.exclude(r'(test_logsoftmax_axis_0)')
-    backend_test.exclude(r'(test_softmax_axis_0)')
+
     if testname:
         backend_test.include(testname + '.*')
     else:
@@ -152,6 +151,7 @@ def create_backend_test(testname=None):
                                  '^test_resize_upsample_sizes_nearest_floor_align_corners_cpu.*',
                                  '^test_resize_upsample_sizes_nearest_round_prefer_ceil_asymmetric_cpu.*',
                                  '^test_scatternd_cpu.*',
+                                 '^test_shrink_cpu.*', #Invalid rank for input: x Got: 1 Expected: 2 Please fix either the inputs or the model.
                                  )
 
         # Example of how to disable tests for a specific provider.
